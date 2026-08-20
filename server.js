@@ -10,11 +10,13 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// PostgreSQL Connection Pool (Supabase / External DB)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres",
     ssl: { rejectUnauthorized: false }
 });
 
+// Auto-create database tables kung wala pa
 async function initTables() {
     try {
         await pool.query(`
@@ -100,13 +102,6 @@ async function initTables() {
                 INSERT INTO settings (id, storename, storeaddress, storephone, taxrate, startingcash) 
                 VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
-        } else {
-            // Check if startingcash column exists
-            try {
-                await pool.query("SELECT startingcash FROM settings LIMIT 1");
-            } catch (e) {
-                await pool.query("ALTER TABLE settings ADD COLUMN startingcash NUMERIC DEFAULT 0");
-            }
         }
         
         console.log("Database tables verified/created successfully.");
@@ -164,6 +159,15 @@ app.put("/api/:table/:id", async (req, res) => {
     }
 });
 
+app.delete("/api/sales/reset", async (req, res) => {
+    try {
+        await pool.query("DELETE FROM sales;");
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.delete("/api/:table/:id", async (req, res) => {
     try {
         const { table, id } = req.params;
@@ -174,19 +178,8 @@ app.delete("/api/:table/:id", async (req, res) => {
     }
 });
 
-app.delete("/api/actions/resetsales", async (req, res) => {
-    try {
-        await pool.query("DELETE FROM sales;");
-        await pool.query("DELETE FROM utang;");
-        await pool.query("DELETE FROM inventory WHERE type = 'Sale';");
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-});
-
 // ================================
-// EMBEDDED CSS & SOUND FX ENGINE
+// EMBEDDED CSS
 // ================================
 const EMBEDDED_CSS = `
 :root {
@@ -245,11 +238,11 @@ th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-siz
 th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
-.pos-scanner-box { background: #000; border-radius: 6px; height: 160px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+.pos-scanner-box { background: #000; border-radius: 6px; height: 180px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
 #interactive.viewport { width: 100%; height: 100%; position: absolute; }
 #interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
-.cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); flex-shrink: 0; }
+.cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); }
 .summary-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1rem; }
 .summary-row.total { font-size: 1.25rem; font-weight: bold; color: var(--primary); border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
 @media(max-width: 900px) {
@@ -257,7 +250,6 @@ th { background-color: #f9fafb; font-weight: 600; }
     aside.mobile-open { left: 0; }
     .menu-toggle { display: block; }
     .pos-container { grid-template-columns: 1fr; height: auto; overflow-y: auto; }
-    body { overflow: auto; }
 }
 .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
 .badge-success { background: #d1fae5; color: #065f46; }
@@ -274,25 +266,8 @@ th { background-color: #f9fafb; font-weight: 600; }
 .barcode-card { display: inline-block; border: 1px dashed #999; padding: 15px; margin: 10px; text-align: center; border-radius: 6px; background: #fff; width: 220px; }
 `;
 
-const AUDIO_BEEP_SCRIPT = `
-function playBeep() {
-    try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        oscillator.type = 'sine';
-        oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
-        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        oscillator.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        oscillator.start();
-        oscillator.stop(audioCtx.currentTime + 0.15);
-    } catch(e) {}
-}
-`;
-
 // ================================
-// ADMIN HTML TEMPLATE
+// HTML TEMPLATE (ADMIN PORTAL)
 // ================================
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -351,28 +326,31 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     <h2 id="current-view-title" style="font-size: 1.25rem;">Dashboard</h2>
                 </div>
                 <div class="user-profile">
-                    <a href="/cashier" target="_blank" class="btn btn-warning" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; width:auto; margin-right: 10px;">Open Cashier Tab</a>
+                    <a href="/cashier" target="_blank" class="btn btn-warning" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; width:auto; margin-right: 10px;">Open Cashier Portal</a>
                     <span id="logged-in-user-label" style="font-weight:600;">Admin</span>
                 </div>
             </header>
 
             <div class="views-container">
+                <!-- DASHBOARD VIEW -->
                 <section id="dashboard-view" class="view-section active">
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
-                        <div class="metric-card success"><h3>Total Cash Sales</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card warning"><h3>Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
-                        <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
-                        <div class="metric-card warning"><h3>Low Stock Products</h3><div class="value" id="dash-low-stock">0</div></div>
+                        <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
+                        <div class="metric-card warning"><h3>Total Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
+                        <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
+                        <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
-                        <button class="btn btn-success" style="width: auto;" onclick="openUpdateStartingCashModal()">Set Starting Cash</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales (Back to Zero)</button>
+                        <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="openStartingCashModal()">Update Starting Cash</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSales()">Reset All Sales</button>
                     </div>
                 </section>
 
+                <!-- POS VIEW -->
                 <section id="pos-view" class="view-section">
                     <div class="pos-container">
                         <div class="pos-left">
@@ -421,7 +399,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                                     </select>
                                 </div>
                                 <div id="cash-payment-fields">
-                                    <div class="form-group"><label>Amount Paid (Ipinambayad)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
+                                    <div class="form-group"><label>Amount Paid (Pera ng Customer)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
                                     <div class="summary-row"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
                                 </div>
                                 <div id="utang-payment-fields" style="display:none;">
@@ -435,6 +413,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- PRODUCTS VIEW -->
                 <section id="products-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -452,6 +431,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- INVENTORY VIEW -->
                 <section id="inventory-view" class="view-section">
                     <div class="card">
                         <h3>Inventory Logs</h3>
@@ -462,6 +442,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- STOCK IN VIEW -->
                 <section id="stockin-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>Stock In / Restock</h3>
@@ -474,6 +455,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- STOCK OUT VIEW -->
                 <section id="stockout-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>Stock Out / Adjustments</h3>
@@ -494,9 +476,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- SALES VIEW -->
                 <section id="sales-view" class="view-section">
                     <div class="card">
-                        <h3>Sales History</h3>
+                        <div class="card-header">
+                            <h3>Sales History</h3>
+                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSales()">Reset All Sales</button>
+                        </div>
                         <table>
                             <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="sales-table-tbody"></tbody>
@@ -504,6 +490,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- UTANG VIEW -->
                 <section id="utang-view" class="view-section">
                     <div class="card">
                         <h3>Utang / Credit</h3>
@@ -514,6 +501,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- CUSTOMERS VIEW -->
                 <section id="customers-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -527,6 +515,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- EXPENSES VIEW -->
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -540,6 +529,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
+                <!-- SETTINGS VIEW -->
                 <section id="settings-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>System Settings</h3>
@@ -547,8 +537,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Name</label><input type="text" id="setting-store-name" class="form-control" required></div>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
@@ -581,14 +571,16 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     </div>
 
     <div id="starting-cash-modal" class="modal">
-        <div class="modal-content">
-            <h3>Set Starting Cash (Puhunan)</h3>
-            <div class="form-group">
-                <label>Magkano ang barya/pera sa kaha ngayon?</label>
-                <input type="number" step="0.01" id="modal-starting-cash-input" class="form-control">
-            </div>
-            <button type="button" class="btn btn-success" onclick="saveStartingCashModal()">I-save ang Puhunan</button>
-            <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
+        <div class="modal-content" style="max-width: 400px;">
+            <h3>Update Starting Cash (Puhunan)</h3>
+            <form onsubmit="updateStartingCashSubmit(event)">
+                <div class="form-group" style="margin-top: 15px;">
+                    <label>Magkano ang puhunan o barya sa kaha ngayon?</label>
+                    <input type="number" step="0.01" id="modal-starting-cash-input" class="form-control" required>
+                </div>
+                <button type="submit" class="btn btn-success">I-save ang Puhunan</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Kanselahin</button>
+            </form>
         </div>
     </div>
 
@@ -633,8 +625,22 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
+    <div id="utang-payment-modal" class="modal">
+        <div class="modal-content">
+            <h3>Record Utang Payment</h3>
+            <form id="utang-pay-form" onsubmit="processUtangPayment(event)">
+                <input type="hidden" id="pay-utang-id">
+                <div class="form-group"><label>Customer: <span id="pay-cust-name"></span></label></div>
+                <div class="form-group"><label>Remaining: <span id="pay-remaining-balance"></span></label></div>
+                <div class="form-group"><label>Amount to Pay</label><input type="number" step="0.01" id="pay-amount" class="form-control" required></div>
+                <button type="submit" class="btn btn-success">Confirm Payment</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- CLIENT SCRIPT ENGINE -->
     <script>
-    ${AUDIO_BEEP_SCRIPT}
     let currentUser = null;
     let cart = [];
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0 };
@@ -645,6 +651,22 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         setupNavigation();
         setupAuth();
     });
+
+    function playBeep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.15, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+        } catch(e) {}
+    }
 
     async function apiFetch(endpoint, method = "GET", data = null) {
         const options = { method, headers: { "Content-Type": "application/json" } };
@@ -756,37 +778,49 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     async function renderDashboard() {
+        await loadSettings();
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
         const utang = await apiFetch("utang");
 
-        let totalCashSales = 0;
+        const today = new Date().toISOString().slice(0, 10);
+        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+
         sales.forEach(s => {
-            if (s.paymentmethod === "Cash") {
-                totalCashSales += Number(s.total);
+            if (s.date && s.date.startsWith(today)) {
+                if (s.paymentmethod === "Cash" || s.paymentmethod === "GCash" || s.paymentmethod === "Maya" || s.paymentmethod === "Card") {
+                    totalSalesToday += Number(s.total);
+                }
+                totalOrdersToday++;
+                if (s.items) {
+                    const parsedItems = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
+                    parsedItems.forEach(item => {
+                        todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
+                    });
+                }
             }
         });
 
         let startingCash = Number(appSettings.startingcash || 0);
-        let expectedCash = startingCash + totalCashSales;
-
+        let expectedCash = startingCash + totalSalesToday;
         let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
-        document.getElementById("dash-total-sales").innerText = formatCurrency(totalCashSales);
+        document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
-        document.getElementById("dash-total-products").innerText = products.length;
-        document.getElementById("dash-low-stock").innerText = lowStockCount;
+        document.getElementById("dash-total-orders").innerText = totalOrdersToday;
+        document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
     }
 
-    function openUpdateStartingCashModal() {
+    function openStartingCashModal() {
         document.getElementById("modal-starting-cash-input").value = appSettings.startingcash || 0;
         document.getElementById("starting-cash-modal").classList.add("active");
     }
 
-    async function saveStartingCashModal() {
+    async function updateStartingCashSubmit(e) {
+        e.preventDefault();
         const val = parseFloat(document.getElementById("modal-starting-cash-input").value) || 0;
         appSettings.startingcash = val;
         await apiFetch("settings/1", "PUT", appSettings);
@@ -796,10 +830,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         alert("Na-update na ang Starting Cash!");
     }
 
-    async function resetAllSalesData() {
-        if (confirm("Gusto mo bang i-reset ang lahat ng sales at bumalik sa zero? Masisira ang kasalukuyang sales history at magba-back to zero ang mga ito.")) {
-            await fetch("/api/actions/resetsales", { method: "DELETE" });
-            alert("Na-reset na ang sales at bumalik na sa zero!");
+    async function resetAllSales() {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng sales pabalik sa zero?")) {
+            await fetch("/api/sales/reset", { method: "DELETE" });
+            alert("Na-reset na ang sales pabalik sa zero!");
             refreshAllViews();
         }
     }
@@ -823,13 +857,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         container.innerHTML = "";
         products.forEach((p, idx) => {
             if (!p.barcode) return;
-            container.innerHTML += \`
-                <div class="barcode-card">
-                    <div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${p.name}</div>
-                    <svg id="barcode-svg-\${idx}"></svg>
-                    <div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">\${formatCurrency(p.sellingprice)}</div>
-                </div>
-            \`;
+            container.innerHTML += '<div class="barcode-card"><div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + p.name + '</div><svg id="barcode-svg-' + idx + '"></svg><div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">' + formatCurrency(p.sellingprice) + '</div></div>';
         });
         document.getElementById("print-barcode-modal").classList.add("active");
         setTimeout(() => {
@@ -871,6 +899,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderProductsTable() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("products-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         const search = document.getElementById("product-search-input")?.value.toLowerCase() || "";
 
@@ -880,21 +909,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (p.stock <= 0) statusBadge = '<span class="badge badge-danger">Out of Stock</span>';
             else if (p.stock <= 5) statusBadge = '<span class="badge badge-warning">Low Stock</span>';
 
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${p.barcode || '-'}</td>
-                    <td>\${p.name}</td>
-                    <td>\${p.category || '-'}</td>
-                    <td>\${formatCurrency(p.costprice)}</td>
-                    <td>\${formatCurrency(p.sellingprice)}</td>
-                    <td>\${p.stock}</td>
-                    <td>\${statusBadge}</td>
-                    <td>
-                        <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(\${p.id})">Edit</button>
-                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(\${p.id})">Delete</button>
-                    </td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + (p.barcode || '-') + '</td><td>' + p.name + '</td><td>' + (p.category || '-') + '</td><td>' + formatCurrency(p.costprice) + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td>' + statusBadge + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(' + p.id + ')">Edit</button> <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(' + p.id + ')">Delete</button></td></tr>';
         });
     }
 
@@ -926,26 +941,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${p.name}</td>
-                    <td>\${formatCurrency(p.sellingprice)}</td>
-                    <td>\${p.stock}</td>
-                    <td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="promptAddToCart(\${p.id})">Add</button></td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(' + p.id + ', 1)">Add</button></td></tr>';
         });
-    }
-
-    async function promptAddToCart(productId) {
-        const products = await apiFetch("products");
-        const product = products.find(p => p.id === productId);
-        if (!product) return;
-        let qtyStr = prompt("Ilan ang bilhin para sa " + product.name + "?", "1");
-        if (qtyStr === null) return;
-        let qty = parseInt(qtyStr);
-        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
-        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -953,8 +950,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.id === productId);
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
-
-        playBeep();
 
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
@@ -982,19 +977,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${item.name}</td>
-                    <td>
-                        <button onclick="updateCartQty(\${index}, -1)">-</button>
-                        \${item.quantity}
-                        <button onclick="updateCartQty(\${index}, 1)">+</button>
-                    </td>
-                    <td>\${formatCurrency(item.sellingPrice)}</td>
-                    <td>\${formatCurrency(itemSub)}</td>
-                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(\${index})">X</button></td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
 
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
@@ -1012,27 +995,28 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     function removeFromCart(index) { cart.splice(index, 1); renderCart(); }
 
+    async function handleScanCode(code) {
+        playBeep();
+        const products = await apiFetch("products");
+        const product = products.find(p => p.barcode === code);
+        if (product) {
+            let qtyStr = prompt("Ilang piraso para sa " + product.name + "?", "1");
+            if (qtyStr === null) return;
+            let qty = parseInt(qtyStr) || 1;
+            if (qty <= 0) qty = 1;
+            addToCart(product.id, qty);
+        } else {
+            alert("Product not found: " + code);
+        }
+    }
+
     async function handleManualBarcode() {
         const inputField = document.getElementById("manual-barcode-input");
         const code = inputField.value.trim();
         if (!code) return;
-        const products = await apiFetch("products");
-        const product = products.find(p => p.barcode === code);
-        if (product) {
-            let qtyStr = prompt("Ilan ang piraso ng " + product.name + "?", "1");
-            if (qtyStr !== null) {
-                let qty = parseInt(qtyStr);
-                if (!isNaN(qty) && qty > 0) {
-                    addToCart(product.id, qty);
-                }
-            }
-            inputField.value = "";
-            inputField.focus();
-        } else {
-            alert("Product not found: " + code);
-            inputField.value = "";
-            inputField.focus();
-        }
+        inputField.value = "";
+        inputField.focus();
+        await handleScanCode(code);
     }
 
     function togglePaymentFields() {
@@ -1128,22 +1112,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         alert("Transaction complete! Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
-        refreshAllViews();
+        if (typeof renderDashboard === 'function') refreshAllViews();
     }
 
     function startScanner() {
         const config = { fps: 10, qrbox: { width: 250, height: 150 } };
         html5QrCode = new Html5Qrcode("interactive");
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
-            const products = await apiFetch("products");
-            const product = products.find(p => p.barcode === decodedText);
-            if (product) {
-                let qtyStr = prompt("Ilan ang piraso ng " + product.name + "?", "1");
-                if (qtyStr !== null) {
-                    let qty = parseInt(qtyStr);
-                    if (!isNaN(qty) && qty > 0) addToCart(product.id, qty);
-                }
-            }
+            stopScanner();
+            await handleScanCode(decodedText);
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
@@ -1156,18 +1133,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         logs.forEach(l => {
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${new Date(l.date).toLocaleString()}</td>
-                    <td>\${l.productname}</td>
-                    <td><span class="badge \${l.type === 'Stock In' ? 'badge-success' : 'badge-danger'}">\${l.type}</span></td>
-                    <td>\${l.quantity}</td>
-                    <td>\${l.previousstock}</td>
-                    <td>\${l.newstock}</td>
-                    <td>\${l.reason || '-'}</td>
-                    <td>\${l.user}</td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + new Date(l.date).toLocaleString() + '</td><td>' + l.productname + '</td><td><span class="badge ' + (l.type === 'Stock In' ? 'badge-success' : 'badge-danger') + '">' + l.type + '</span></td><td>' + l.quantity + '</td><td>' + l.previousstock + '</td><td>' + l.newstock + '</td><td>' + (l.reason || '-') + '</td><td>' + l.user + '</td></tr>';
         });
     }
 
@@ -1231,18 +1197,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${s.transactionnumber}</td>
-                    <td>\${new Date(s.date).toLocaleString()}</td>
-                    <td>\${totalQty}</td>
-                    <td>\${formatCurrency(s.total)}</td>
-                    <td>\${formatCurrency(s.amountpaid)}</td>
-                    <td>\${s.paymentmethod}</td>
-                    <td><span class="badge \${s.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${s.status}</span></td>
-                    <td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(\${s.id})">Void</button></td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
         });
     }
 
@@ -1280,17 +1235,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         utangList.forEach(u => {
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${u.customername}</td>
-                    <td>\${formatCurrency(u.originalamount)}</td>
-                    <td>\${formatCurrency(u.amountpaid)}</td>
-                    <td>\${formatCurrency(u.remainingbalance)}</td>
-                    <td>\${u.duedate ? new Date(u.duedate).toLocaleDateString() : '-'}</td>
-                    <td><span class="badge \${u.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${u.status}</span></td>
-                    <td>\${u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : ''}</td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + u.customername + '</td><td>' + formatCurrency(u.originalamount) + '</td><td>' + formatCurrency(u.amountpaid) + '</td><td>' + formatCurrency(u.remainingbalance) + '</td><td>' + (u.duedate ? new Date(u.duedate).toLocaleDateString() : '-') + '</td><td><span class="badge ' + (u.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + u.status + '</span></td><td>' + (u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : '') + '</td></tr>';
         });
     }
 
@@ -1303,6 +1248,30 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("pay-remaining-balance").innerText = formatCurrency(u.remainingbalance);
         document.getElementById("pay-amount").value = "";
         document.getElementById("utang-payment-modal").classList.add("active");
+    }
+
+    async function processUtangPayment(e) {
+        e.preventDefault();
+        const id = parseInt(document.getElementById("pay-utang-id").value);
+        const amount = parseFloat(document.getElementById("pay-amount").value);
+        const utangList = await apiFetch("utang");
+        const u = utangList.find(x => x.id === id);
+        if (!u || amount > u.remainingbalance) { alert("Invalid amount!"); return; }
+
+        u.amountpaid = Number(u.amountpaid) + amount;
+        u.remainingbalance = Number(u.remainingbalance) - amount;
+        u.status = u.remainingbalance <= 0 ? "Paid" : "Partially Paid";
+
+        let history = typeof u.paymenthistory === 'string' ? JSON.parse(u.paymenthistory || '[]') : (u.paymenthistory || []);
+        history.push({ date: new Date().toISOString(), amount, method: "Cash", receivedBy: currentUser ? currentUser.username : "Admin" });
+
+        await apiFetch("utang/" + u.id, "PUT", {
+            customerid: u.customerid, customername: u.customername, transactionid: u.transactionid,
+            originalamount: u.originalamount, amountpaid: u.amountpaid, remainingbalance: u.remainingbalance,
+            status: u.status, datecreated: u.datecreated, duedate: u.duedate, paymenthistory: JSON.stringify(history)
+        });
+        closeModals();
+        refreshAllViews();
     }
 
     function openAddCustomerModal() { document.getElementById("customer-form").reset(); document.getElementById("customer-modal").classList.add("active"); }
@@ -1324,7 +1293,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         customers.forEach(c => {
-            tbody.innerHTML += \`<tr><td>\${c.name}</td><td>\${c.phone || '-'}</td><td>\${c.email || '-'}</td><td>\${c.address || '-'}</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(\${c.id})">Delete</button></td></tr>\`;
+            tbody.innerHTML += '<tr><td>' + c.name + '</td><td>' + (c.phone || '-') + '</td><td>' + (c.email || '-') + '</td><td>' + (c.address || '-') + '</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(' + c.id + ')">Delete</button></td></tr>';
         });
     }
     async function deleteCustomer(id) { if (confirm("Delete customer?")) { await apiFetch("customers/" + id, "DELETE"); refreshAllViews(); } }
@@ -1348,7 +1317,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         expenses.forEach(e => {
-            tbody.innerHTML += \`<tr><td>\${e.name}</td><td>\${e.category}</td><td>\${formatCurrency(e.amount)}</td><td>\${new Date(e.date).toLocaleDateString()}</td><td>\${e.notes || '-'}</td></tr>\`;
+            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td>' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td></tr>';
         });
     }
 
@@ -1357,13 +1326,12 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         appSettings.storename = document.getElementById("setting-store-name").value;
         appSettings.storeaddress = document.getElementById("setting-store-address").value;
         appSettings.storephone = document.getElementById("setting-store-phone").value;
-        appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
         appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
+        appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
 
         await apiFetch("settings/1", "PUT", appSettings);
         alert("Settings saved!");
         loadSettings();
-        renderDashboard();
     }
 
     async function populateDropdowns() {
@@ -1373,9 +1341,9 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const stockoutSelect = document.getElementById("stockout-product");
         const utangCustSelect = document.getElementById("pos-utang-customer");
 
-        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
-        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
-        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += \`<option value="\${c.id}">\${c.name}</option>\`); }
+        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
+        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
+        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
@@ -1386,7 +1354,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 `;
 
 // ================================
-// CELLPHONE-FRIENDLY CASHIER PORTAL
+// CASHIER TEMPLATE (CELLPHONE FRIENDLY - NO PASSWORD)
 // ================================
 const CASHIER_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -1395,45 +1363,43 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Cashier POS Portal - SmartStore</title>
     <style>${EMBEDDED_CSS}
-    body { height: 100vh; overflow: auto; background: #f3f4f6; }
+    body { height: 100vh; overflow: hidden; background: #f3f4f6; }
     .cashier-topbar { height: 60px; background: var(--dark); color: white; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
-    .cashier-main { padding: 0.5rem; }
-    .pos-container { display: grid; grid-template-columns: 1fr; gap: 1rem; height: auto; }
-    @media(min-width: 900px) {
-        .pos-container { grid-template-columns: 1.2fr 0.8fr; height: calc(100vh - 70px); }
-        body { overflow: hidden; }
+    .cashier-main { height: calc(100vh - 60px); padding: 0.5rem; }
+    @media(max-width: 900px) {
+        .pos-container { grid-template-columns: 1fr; height: calc(100vh - 70px); overflow-y: auto; gap: 0.5rem; }
+        .pos-scanner-box { height: 140px; }
     }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
     <div class="cashier-topbar">
-        <h2 id="cashier-store-title" style="font-size: 1.1rem;">SmartStore - Cashier</h2>
+        <h2 id="cashier-store-title" style="font-size: 1rem;">SmartStore - Cashier</h2>
         <div>
-            <span style="font-size: 0.8rem; margin-right: 10px; color: #10b981; font-weight: bold;">● Online</span>
-            <a href="/" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; width: auto; display:inline-block;">Admin Login</a>
+            <a href="/" class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; width: auto; display:inline-block;">Admin Login</a>
         </div>
     </div>
 
     <div class="cashier-main">
-        <div class="pos-container">
+        <div class="pos-container" style="height: 100%;">
             <div class="pos-left">
-                <div style="display:flex; justify-content:space-between; margin-bottom: 8px;">
-                    <h3 style="font-size:1rem;">Scanner & Products</h3>
+                <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
+                    <h3 style="font-size:0.95rem;">Scanner & Products</h3>
                     <div>
                         <button class="btn btn-success" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="startScanner()">Start Cam</button>
                         <button class="btn btn-danger" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
                     </div>
                 </div>
-                <div class="pos-scanner-box" style="height: 140px;">
+                <div class="pos-scanner-box">
                     <div id="interactive" class="viewport"></div>
                     <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview</div>
                 </div>
-                <div style="display:flex; gap:10px; margin-bottom:8px;">
+                <div style="display:flex; gap:10px; margin-bottom:10px;">
                     <input type="text" id="manual-barcode-input" class="form-control" placeholder="Scan barcode or type & enter..." autofocus>
                     <button class="btn" style="width:auto;" onclick="handleManualBarcode()">Add</button>
                 </div>
-                <div style="max-height: 200px; overflow-y:auto; border: 1px solid var(--border);">
+                <div style="flex-grow:1; overflow-y:auto; max-height: 200px;">
                     <table id="pos-product-search-table">
                         <thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Action</th></tr></thead>
                         <tbody id="pos-product-search-tbody"></tbody>
@@ -1441,8 +1407,8 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                 </div>
             </div>
             <div class="pos-right">
-                <h3 style="font-size:1rem; margin-bottom:5px;">Current Cart</h3>
-                <div class="cart-items-list" style="max-height: 220px;">
+                <h3 style="font-size:0.95rem;">Current Cart</h3>
+                <div class="cart-items-list" style="max-height: 180px;">
                     <table>
                         <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Sub</th><th></th></tr></thead>
                         <tbody id="cart-items-tbody"></tbody>
@@ -1452,9 +1418,9 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                     <div class="summary-row"><span>Subtotal:</span><span id="cart-subtotal">₱0.00</span></div>
                     <div class="summary-row"><span>Tax:</span><span id="cart-tax">₱0.00</span></div>
                     <div class="summary-row total"><span>Total:</span><span id="cart-grand-total">₱0.00</span></div>
-                    <div class="form-group" style="margin-top:8px; margin-bottom:8px;">
-                        <label>Payment Method</label>
-                        <select id="pos-payment-method" class="form-control" onchange="togglePaymentFields()">
+                    <div class="form-group" style="margin-top:5px; margin-bottom:5px;">
+                        <label style="font-size:0.8rem;">Payment Method</label>
+                        <select id="pos-payment-method" class="form-control" style="padding:0.4rem;" onchange="togglePaymentFields()">
                             <option value="Cash">Cash</option>
                             <option value="GCash">GCash</option>
                             <option value="Maya">Maya</option>
@@ -1463,13 +1429,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                         </select>
                     </div>
                     <div id="cash-payment-fields">
-                        <div class="form-group" style="margin-bottom:8px;"><label>Amount Paid (Ipinambayad)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
-                        <div class="summary-row"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
+                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Amount Paid (Pera ng Customer)</label><input type="number" id="pos-amount-paid" class="form-control" style="padding:0.4rem;" value="0" oninput="calculateChange()"></div>
+                        <div class="summary-row" style="font-size:0.9rem;"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
                     </div>
                     <div id="utang-payment-fields" style="display:none;">
-                        <div class="form-group" style="margin-bottom:8px;"><label>Customer</label><select id="pos-utang-customer" class="form-control"></select></div>
-                        <div class="form-group" style="margin-bottom:8px;"><label>Paid Now</label><input type="number" id="pos-utang-paid-now" class="form-control" value="0"></div>
-                        <div class="form-group" style="margin-bottom:8px;"><label>Due Date</label><input type="date" id="pos-utang-duedate" class="form-control"></div>
+                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Customer</label><select id="pos-utang-customer" class="form-control" style="padding:0.4rem;"></select></div>
+                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Paid Now</label><input type="number" id="pos-utang-paid-now" class="form-control" style="padding:0.4rem;" value="0"></div>
+                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Due Date</label><input type="date" id="pos-utang-duedate" class="form-control" style="padding:0.4rem;"></div>
                     </div>
                     <button class="btn btn-success" style="margin-top:5px; padding:0.6rem;" onclick="completeCheckout()">Complete Payment</button>
                 </div>
@@ -1478,7 +1444,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     </div>
 
     <script>
-    ${AUDIO_BEEP_SCRIPT}
     let cart = [];
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
     let html5QrCode = null;
@@ -1489,6 +1454,22 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         await populateDropdowns();
         setupManualBarcodeListener();
     });
+
+    function playBeep() {
+        try {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = "sine";
+            osc.frequency.value = 880;
+            gain.gain.setValueAtTime(0.15, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.15);
+        } catch(e) {}
+    }
 
     async function apiFetch(endpoint, method = "GET", data = null) {
         const options = { method, headers: { "Content-Type": "application/json" } };
@@ -1524,26 +1505,8 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${p.name}</td>
-                    <td>\${formatCurrency(p.sellingprice)}</td>
-                    <td>\${p.stock}</td>
-                    <td><button class="btn" style="padding:0.2rem 0.4rem; width:auto;" onclick="promptAddToCart(\${p.id})">Add</button></td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.2rem 0.4rem; width:auto;" onclick="addToCart(' + p.id + ', 1)">Add</button></td></tr>';
         });
-    }
-
-    async function promptAddToCart(productId) {
-        const products = await apiFetch("products");
-        const product = products.find(p => p.id === productId);
-        if (!product) return;
-        let qtyStr = prompt("Ilan ang piraso ng " + product.name + "?", "1");
-        if (qtyStr === null) return;
-        let qty = parseInt(qtyStr);
-        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
-        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -1551,8 +1514,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.id === productId);
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
-
-        playBeep();
 
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
@@ -1573,25 +1534,14 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
     function renderCart() {
         const tbody = document.getElementById("cart-items-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
 
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
-            tbody.innerHTML += \`
-                <tr>
-                    <td>\${item.name}</td>
-                    <td>
-                        <button onclick="updateCartQty(\${index}, -1)">-</button>
-                        \${item.quantity}
-                        <button onclick="updateCartQty(\${index}, 1)">+</button>
-                    </td>
-                    <td>\${formatCurrency(item.sellingPrice)}</td>
-                    <td>\${formatCurrency(itemSub)}</td>
-                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(\${index})">X</button></td>
-                </tr>
-            \`;
+            tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
 
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
@@ -1609,25 +1559,28 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
     function removeFromCart(index) { cart.splice(index, 1); renderCart(); }
 
+    async function handleScanCode(code) {
+        playBeep();
+        const products = await apiFetch("products");
+        const product = products.find(p => p.barcode === code);
+        if (product) {
+            let qtyStr = prompt("Ilang piraso para sa " + product.name + "?", "1");
+            if (qtyStr === null) return;
+            let qty = parseInt(qtyStr) || 1;
+            if (qty <= 0) qty = 1;
+            addToCart(product.id, qty);
+        } else {
+            alert("Product not found: " + code);
+        }
+    }
+
     async function handleManualBarcode() {
         const inputField = document.getElementById("manual-barcode-input");
         const code = inputField.value.trim();
         if (!code) return;
-        const products = await apiFetch("products");
-        const product = products.find(p => p.barcode === code);
-        if (product) {
-            let qtyStr = prompt("Ilan ang piraso ng " + product.name + "?", "1");
-            if (qtyStr !== null) {
-                let qty = parseInt(qtyStr);
-                if (!isNaN(qty) && qty > 0) addToCart(product.id, qty);
-            }
-            inputField.value = "";
-            inputField.focus();
-        } else {
-            alert("Product not found: " + code);
-            inputField.value = "";
-            inputField.focus();
-        }
+        inputField.value = "";
+        inputField.focus();
+        await handleScanCode(code);
     }
 
     function togglePaymentFields() {
@@ -1731,15 +1684,8 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const config = { fps: 10, qrbox: { width: 250, height: 150 } };
         html5QrCode = new Html5Qrcode("interactive");
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
-            const products = await apiFetch("products");
-            const product = products.find(p => p.barcode === decodedText);
-            if (product) {
-                let qtyStr = prompt("Ilan ang piraso ng " + product.name + "?", "1");
-                if (qtyStr !== null) {
-                    let qty = parseInt(qtyStr);
-                    if (!isNaN(qty) && qty > 0) addToCart(product.id, qty);
-                }
-            }
+            stopScanner();
+            await handleScanCode(decodedText);
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
@@ -1749,7 +1695,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     async function populateDropdowns() {
         const customers = await apiFetch("customers");
         const utangCustSelect = document.getElementById("pos-utang-customer");
-        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += \`<option value="\${c.id}">\${c.name}</option>\`); }
+        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
     }
 
     function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
