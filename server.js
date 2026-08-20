@@ -103,8 +103,8 @@ async function initTables() {
                 VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
         } else {
-            // Siguraduhing may startingcash column kung lumang database na
-            await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0;`).catch(() => {});
+            // Siguraduhing merong startingcash column kung lumang table na
+            await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0;`);
         }
         
         console.log("Database tables verified/created successfully.");
@@ -339,9 +339,28 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                         <div class="metric-card warning"><h3>Low Stock Products</h3><div class="value" id="dash-low-stock">0</div></div>
                         <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
-                        <div class="metric-card success" style="border-left-color: #3b82f6;"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
-                        <div class="metric-card success" style="border-left-color: #10b981;"><h3>Total Expected Money in Drawer</h3><div class="value" id="dash-total-drawer-money">₱0.00</div></div>
                     </div>
+
+                    <!-- Cash Breakdown Box -->
+                    <div class="card" style="background: #eef2ff; border: 1px solid #c7d2fe; margin-bottom: 2rem;">
+                        <h3 style="margin-bottom: 1rem; color: #3730a3;">Kaha / Cash Drawer Breakdown</h3>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                            <div style="background: white; padding: 12px; border-radius: 6px;">
+                                <span style="font-size: 0.85rem; color: #666;">Starting Cash (Puhunan)</span>
+                                <div id="dash-starting-cash-display" style="font-size: 1.2rem; font-weight: bold; color: #4f46e5;">₱0.00</div>
+                            </div>
+                            <div style="background: white; padding: 12px; border-radius: 6px;">
+                                <span style="font-size: 0.85rem; color: #666;">Total Cash Sales (Bugso)</span>
+                                <div id="dash-cash-sales-display" style="font-size: 1.2rem; font-weight: bold; color: #10b981;">₱0.00</div>
+                            </div>
+                            <div style="background: white; padding: 12px; border-radius: 6px; border: 2px solid #4f46e5;">
+                                <span style="font-size: 0.85rem; color: #3730a3; font-weight: bold;">Expected Total Cash in Drawer</span>
+                                <div id="dash-expected-cash-display" style="font-size: 1.3rem; font-weight: bold; color: #3730a3;">₱0.00</div>
+                            </div>
+                        </div>
+                        <button class="btn" style="width: auto;" onclick="refreshDashboardCash()">I-refresh ang Cash Breakdown</button>
+                    </div>
+
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
@@ -535,8 +554,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash / Puhunan sa Kaha (Initial Money)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" value="0"></div>
-                            <button type="submit" class="btn">Save Settings</button>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" value="0"></div>
+                            <button type="submit" class="btn btn-success">Save Settings</button>
                         </form>
                     </div>
                 </section>
@@ -753,15 +772,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
 
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalCashSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+        let totalCashSalesToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
-                if (s.paymentmethod === "Cash") {
-                    totalCashSalesToday += Number(s.total);
-                }
                 totalOrdersToday++;
+                // Kung Cash ang payment method, idagdag sa cash sales
+                if (s.paymentmethod === "Cash") {
+                    totalCashSalesToday += Number(s.amountpaid > s.total ? s.total : s.amountpaid);
+                }
                 if (s.items) {
                     s.items.forEach(item => {
                         todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
@@ -772,8 +793,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
         let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
-        let startingCash = Number(appSettings.startingcash || 0);
-        let totalDrawerMoney = startingCash + totalCashSalesToday;
 
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
@@ -781,8 +800,20 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("dash-low-stock").innerText = lowStockCount;
         document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
-        document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
-        document.getElementById("dash-total-drawer-money").innerText = formatCurrency(totalDrawerMoney);
+
+        // Cash Breakdown Values
+        const startingCash = Number(appSettings.startingcash || 0);
+        const expectedTotalCash = startingCash + totalCashSalesToday;
+
+        document.getElementById("dash-starting-cash-display").innerText = formatCurrency(startingCash);
+        document.getElementById("dash-cash-sales-display").innerText = formatCurrency(totalCashSalesToday);
+        document.getElementById("dash-expected-cash-display").innerText = formatCurrency(expectedTotalCash);
+    }
+
+    async function refreshDashboardCash() {
+        await loadSettings();
+        renderDashboard();
+        alert("Na-refresh na ang Cash Breakdown!");
     }
 
     function generateAutoBarcode() {
@@ -1341,8 +1372,9 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
 
         await apiFetch("settings/1", "PUT", appSettings);
-        alert("Settings saved!");
+        alert("Settings and Starting Cash saved successfully!");
         loadSettings();
+        renderDashboard();
     }
 
     async function populateDropdowns() {
