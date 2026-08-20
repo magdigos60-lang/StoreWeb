@@ -229,7 +229,7 @@ th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-siz
 th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
-.pos-scanner-box { background: #000; border-radius: 6px; height: 200px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+.pos-scanner-box { background: #000; border-radius: 6px; height: 180px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
 #interactive.viewport { width: 100%; height: 100%; position: absolute; }
 #interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
@@ -252,7 +252,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 `;
 
 // ================================
-// HTML TEMPLATE
+// HTML TEMPLATE (MAIN APP)
 // ================================
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -262,6 +262,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     <title id="page-title">SmartStore POS & Inventory System</title>
     <style>${EMBEDDED_CSS}</style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 </head>
 <body>
     <!-- Login Screen -->
@@ -339,11 +340,12 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <section id="pos-view" class="view-section">
                     <div class="pos-container">
                         <div class="pos-left">
-                            <div style="display:flex; justify-content:space-between; margin-bottom: 10px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 10px; align-items:center; flex-wrap:wrap; gap:5px;">
                                 <h3>Scanner & Products</h3>
-                                <div>
-                                    <button class="btn btn-success" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="startScanner()">Start Cam</button>
-                                    <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
+                                <div style="display:flex; gap:5px; align-items:center;">
+                                    <a href="/scanner" target="_blank" class="btn btn-warning" style="padding: 0.25rem 0.5rem; font-size:0.75rem; text-decoration:none;">📱 Dedicated Scanner Link</a>
+                                    <button class="btn btn-success" style="padding: 0.25rem 0.5rem; font-size:0.75rem; width:auto;" onclick="startScanner()">Start Cam</button>
+                                    <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size:0.75rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
                                 </div>
                             </div>
                             <div class="pos-scanner-box">
@@ -594,7 +596,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- CLIENT SCRIPT ENGINE (REST API CALLS) -->
+    <!-- CLIENT SCRIPT ENGINE -->
     <script>
     let currentUser = null;
     let cart = [];
@@ -701,9 +703,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (["stockin-view", "stockout-view", "pos-view"].includes(target)) populateDropdowns();
     }
 
-    // ================================
-    // MODULE FUNCTIONS
-    // ================================
     async function renderDashboard() {
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
@@ -787,7 +786,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
             tbody.innerHTML += \`
                 <tr>
-                    <td>\${p.barcode || '-'}</td>
+                    <td>
+                        \${p.barcode || '-'} 
+                        \${p.barcode ? \`<button class="btn btn-warning" style="padding:0.1rem 0.3rem; font-size:0.7rem; width:auto; margin-left:5px;" onclick="printBarcode('\${p.barcode}', '\${p.name}', '\${p.sellingprice}')">🖨️ Print</button>\` : ''}
+                    </td>
                     <td>\${p.name}</td>
                     <td>\${p.category || '-'}</td>
                     <td>\${formatCurrency(p.costprice)}</td>
@@ -801,6 +803,36 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 </tr>
             \`;
         });
+    }
+
+    function printBarcode(code, name, price) {
+        const printWindow = window.open('', '_blank', 'height=500,width=600');
+        printWindow.document.write(\`
+            <html>
+            <head>
+                <title>Print Barcode - \${name}</title>
+                <style>
+                    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
+                    .barcode-box { border: 1px dashed #333; display: inline-block; padding: 15px; border-radius: 8px; margin: 10px; }
+                    h3 { margin: 5px 0; font-size: 16px; }
+                    p { margin: 5px 0; font-size: 14px; font-weight: bold; }
+                </style>
+            </head>
+            <body>
+                <div class="barcode-box">
+                    <h3>\${name}</h3>
+                    <p>\${formatCurrency(price)}</p>
+                    <svg id="bcode"></svg>
+                </div>
+                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\\/script>
+                <script>
+                    JsBarcode("#bcode", "\${code}", { format: "CODE128", width: 2, height: 60, displayValue: true });
+                    window.onload = function() { window.print(); window.close(); }
+                <\\/script>
+            </body>
+            </html>
+        \`);
+        printWindow.document.close();
     }
 
     async function editProduct(id) {
@@ -825,7 +857,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
-    // POS & Cart
     async function renderPOSProducts() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("pos-product-search-tbody");
@@ -1011,7 +1042,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         refreshAllViews();
     }
 
-    // Camera Scanner
     function startScanner() {
         const config = { fps: 10, qrbox: { width: 250, height: 150 } };
         html5QrCode = new Html5Qrcode("interactive");
@@ -1025,7 +1055,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
     }
 
-    // Inventory Logs & Actions
     async function renderInventoryTable() {
         const logs = await apiFetch("inventory");
         const tbody = document.getElementById("inventory-table-tbody");
@@ -1098,7 +1127,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
-    // Sales, Utang, Customers, Expenses
     async function renderSalesTable() {
         const sales = await apiFetch("sales");
         const tbody = document.getElementById("sales-table-tbody");
@@ -1279,9 +1307,73 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 </html>
 `;
 
+// ================================
+// STANDALONE MOBILE SCANNER PAGE ROUTE (/scanner)
+// ================================
+const SCANNER_PAGE_TEMPLATE = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dedicated Phone Scanner - SmartStore</title>
+    <style>
+        body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 1rem; }
+        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+        .btn { background: #10b981; color: white; border: none; padding: 12px 20px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin-top: 15px; width: 100%; max-width: 300px; font-weight: bold; }
+        #result-box { margin-top: 20px; font-size: 1.2rem; background: #222; padding: 15px; border-radius: 8px; }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+</head>
+<body>
+    <h2>📱 Standalone Phone Scanner</h2>
+    <p style="color:#aaa; font-size:0.9rem;">Point your camera at any product barcode to send it directly to the POS system.</p>
+    
+    <div id="reader"></div>
+    
+    <div id="result-box">
+        <div id="scanned-status" style="color: #f59e0b;">Waiting for scan...</div>
+    </div>
+    
+    <button class="btn" onclick="location.reload()">Restart Scanner</button>
+
+    <script>
+    async function apiFetch(endpoint, method = "GET", data = null) {
+        const options = { method, headers: { "Content-Type": "application/json" } };
+        if (data) options.body = JSON.stringify(data);
+        const res = await fetch("/api/" + endpoint, options);
+        return await res.json();
+    }
+
+    async function onScanSuccess(decodedText) {
+        document.getElementById("scanned-status").innerHTML = "Scanned: <b>" + decodedText + "</b>. Checking product...";
+        const products = await apiFetch("products");
+        const product = products.find(p => p.barcode === decodedText);
+        
+        if (product) {
+            // NOTE: If you are running multiple clients, you can expand this to add to active cart via database session or handle manual entry.
+            document.getElementById("scanned-status").innerHTML = "<span style='color:#10b981;'>✔ Found: " + product.name + " (₱" + product.sellingprice + ")</span>";
+            if (navigator.vibrate) navigator.vibrate(200);
+        } else {
+            document.getElementById("scanned-status").innerHTML = "<span style='color:#ef4444;'>❌ Barcode not found: " + decodedText + "</span>";
+        }
+    }
+
+    const html5QrCode = new Html5Qrcode("reader");
+    html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: { width: 250, height: 150 } }, onScanSuccess)
+        .catch(err => { document.getElementById("scanned-status").innerText = "Camera Error: " + err; });
+    </script>
+</body>
+</html>
+`;
+
 app.get("/", (req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.send(HTML_TEMPLATE);
+});
+
+app.get("/scanner", (req, res) => {
+    res.setHeader("Content-Type", "text/html");
+    res.send(SCANNER_PAGE_TEMPLATE);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
