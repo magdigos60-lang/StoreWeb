@@ -10,9 +10,6 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// In-memory queue for cross-device scanner communication
-let liveScannerQueue = [];
-
 // PostgreSQL Connection Pool (Supabase / External DB)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres",
@@ -98,7 +95,6 @@ async function initTables() {
             );
         `);
         
-        // Insert default settings kung wala pa
         const settingsCheck = await pool.query("SELECT * FROM settings WHERE id = 1");
         if (settingsCheck.rows.length === 0) {
             await pool.query(`
@@ -116,7 +112,7 @@ async function initTables() {
 initTables();
 
 // ================================
-// REST API ENDPOINTS FOR EXTERNAL DB
+// REST API ENDPOINTS
 // ================================
 app.get("/api/:table", async (req, res) => {
     try {
@@ -170,18 +166,6 @@ app.delete("/api/:table/:id", async (req, res) => {
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
-});
-
-// Live Scanner Queue Endpoints for Dedicated Scanner Portal
-app.post("/api/scanner/push", (req, res) => {
-    const { barcode } = req.body;
-    liveScannerQueue.push({ barcode, timestamp: Date.now() });
-    res.json({ success: true });
-});
-
-app.get("/api/scanner/poll", (req, res) => {
-    res.json(liveScannerQueue);
-    liveScannerQueue = []; // clear queue after polling
 });
 
 // ================================
@@ -245,8 +229,8 @@ th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
 .pos-scanner-box { background: #000; border-radius: 6px; height: 200px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
-#interactive.viewport, #scanner-interactive.viewport { width: 100%; height: 100%; position: absolute; }
-#interactive.viewport canvas, #interactive.viewport video, #scanner-interactive.viewport canvas, #scanner-interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
+#interactive.viewport { width: 100%; height: 100%; position: absolute; }
+#interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
 .cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); }
 .summary-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1rem; }
@@ -267,7 +251,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 `;
 
 // ================================
-// HTML TEMPLATE (ADMIN & POS)
+// HTML TEMPLATE
 // ================================
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -296,7 +280,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <button type="submit" class="btn">Login</button>
             </form>
             <div style="margin-top: 1rem; font-size: 0.8rem; color: #666; text-align: center;">
-                Default Admin: admin / admin123
+                Admin: admin / admin123<br>Cashier Portal: cashier / cashier123
             </div>
         </div>
     </div>
@@ -305,20 +289,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     <div id="app" style="display:none;">
         <aside id="sidebar">
             <div class="sidebar-header" id="sidebar-store-name">SmartStore</div>
-            <ul class="sidebar-menu">
-                <li class="active" data-target="dashboard-view"><a href="#">Dashboard</a></li>
-                <li data-target="pos-view"><a href="#">POS / Scanner</a></li>
-                <li data-target="products-view"><a href="#">Products</a></li>
-                <li data-target="inventory-view"><a href="#">Inventory</a></li>
-                <li data-target="stockin-view"><a href="#">Stock In</a></li>
-                <li data-target="stockout-view"><a href="#">Stock Out</a></li>
-                <li data-target="sales-view"><a href="#">Sales</a></li>
-                <li data-target="utang-view"><a href="#">Utang / Credit</a></li>
-                <li data-target="customers-view"><a href="#">Customers</a></li>
-                <li data-target="expenses-view"><a href="#">Expenses</a></li>
-                <li data-target="settings-view"><a href="#">Settings</a></li>
-                <li><a href="/scanner" target="_blank" style="color: #10b981; font-weight: bold;">📱 Open Dedicated Scanner Portal</a></li>
-                <li><a href="#" id="logout-btn">Logout</a></li>
+            <ul class="sidebar-menu" id="sidebar-menu-list">
+                <!-- Dynamic based on user role -->
             </ul>
         </aside>
 
@@ -349,7 +321,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
                         <button class="btn btn-warning" style="width: auto;" onclick="switchView('stockin-view')">Stock In</button>
                         <button class="btn btn-danger" style="width: auto;" onclick="switchView('utang-view')">View Utang</button>
-                        <a href="/scanner" target="_blank" class="btn btn-success" style="width: auto; text-decoration:none; display:inline-flex; align-items:center;">📱 Dedicated Scanner Portal</a>
                     </div>
                 </section>
 
@@ -366,7 +337,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             </div>
                             <div class="pos-scanner-box">
                                 <div id="interactive" class="viewport"></div>
-                                <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview (Main)</div>
+                                <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview</div>
                             </div>
                             <div style="display:flex; gap:10px; margin-bottom:10px;">
                                 <input type="text" id="manual-barcode-input" class="form-control" placeholder="Scan barcode or type & enter...">
@@ -612,18 +583,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Barcode Print Preview Modal -->
+    <!-- Barcode Print Modal -->
     <div id="barcode-print-modal" class="modal">
-        <div class="modal-content" style="max-width: 400px; text-align: center;">
-            <h3>Print Barcode Label</h3>
-            <div id="barcode-preview-container" style="margin: 20px 0; background: #fff; padding: 15px; border: 1px dashed #ccc; display: inline-block;">
-                <p id="print-prod-name" style="font-weight: bold; font-size: 14px; margin-bottom: 5px;"></p>
+        <div class="modal-content" style="text-align: center;">
+            <h3>Print Barcode Sticker</h3>
+            <div style="margin: 20px 0; background: #fff; padding: 15px; display: inline-block; border: 1px dashed #ccc;">
+                <p id="print-prod-name" style="font-weight: bold; margin-bottom: 5px;"></p>
+                <p id="print-prod-price" style="color: #4f46e5; font-weight: bold; margin-bottom: 10px;"></p>
                 <svg id="barcode-svg"></svg>
-                <p id="print-prod-price" style="font-size: 14px; margin-top: 5px;"></p>
             </div>
             <div>
-                <button class="btn btn-success" onclick="window.print()">Print Label</button>
-                <button class="btn btn-secondary" onclick="closeModals()" style="margin-top: 10px;">Close</button>
+                <button class="btn btn-success" onclick="window.print()" style="margin-bottom: 10px;">Print Barcode</button>
+                <button class="btn btn-secondary" onclick="closeModals()">Close</button>
             </div>
         </div>
     </div>
@@ -637,10 +608,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     window.addEventListener("DOMContentLoaded", async () => {
         await loadSettings();
-        setupNavigation();
         setupAuth();
-        // Background polling for remote scanner device inputs
-        setInterval(pollRemoteScannerQueue, 1500);
     });
 
     async function apiFetch(endpoint, method = "GET", data = null) {
@@ -669,12 +637,16 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             e.preventDefault();
             const user = document.getElementById("login-user").value;
             const pass = document.getElementById("login-pass").value;
-            if ((user === "admin" && pass === "admin123") || (user === "cashier" && pass === "cashier123")) {
-                currentUser = { username: user, role: user === "admin" ? "ADMIN" : "CASHIER" };
-                document.getElementById("auth-screen").style.display = "none";
-                document.getElementById("app").style.display = "flex";
-                document.getElementById("logged-in-user-label").innerText = currentUser.username + " (" + currentUser.role + ")";
-                refreshAllViews();
+
+            if (user === "admin" && pass === "admin123") {
+                currentUser = { username: user, role: "ADMIN" };
+                buildMenuForAdmin();
+                loginSuccess();
+            } else if (user === "cashier" && pass === "cashier123") {
+                currentUser = { username: user, role: "CASHIER" };
+                buildMenuForCashier();
+                loginSuccess();
+                switchView("pos-view");
             } else {
                 alert("Invalid username or password");
             }
@@ -682,6 +654,53 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
         document.getElementById("logout-btn").addEventListener("click", () => {
             currentUser = null;
+            stopScanner();
+            document.getElementById("app").style.display = "none";
+            document.getElementById("auth-screen").style.display = "flex";
+        });
+    }
+
+    function loginSuccess() {
+        document.getElementById("auth-screen").style.display = "none";
+        document.getElementById("app").style.display = "flex";
+        document.getElementById("logged-in-user-label").innerText = currentUser.username + " (" + currentUser.role + ")";
+        setupNavigation();
+        refreshAllViews();
+    }
+
+    function buildMenuForAdmin() {
+        const menu = document.getElementById("sidebar-menu-list");
+        menu.innerHTML = `
+            <li class="active" data-target="dashboard-view"><a href="#">Dashboard</a></li>
+            <li data-target="pos-view"><a href="#">POS / Scanner</a></li>
+            <li data-target="products-view"><a href="#">Products</a></li>
+            <li data-target="inventory-view"><a href="#">Inventory</a></li>
+            <li data-target="stockin-view"><a href="#">Stock In</a></li>
+            <li data-target="stockout-view"><a href="#">Stock Out</a></li>
+            <li data-target="sales-view"><a href="#">Sales</a></li>
+            <li data-target="utang-view"><a href="#">Utang / Credit</a></li>
+            <li data-target="customers-view"><a href="#">Customers</a></li>
+            <li data-target="expenses-view"><a href="#">Expenses</a></li>
+            <li data-target="settings-view"><a href="#">Settings</a></li>
+            <li><a href="#" id="logout-btn">Logout</a></li>
+        `;
+        rebindLogout();
+    }
+
+    function buildMenuForCashier() {
+        const menu = document.getElementById("sidebar-menu-list");
+        menu.innerHTML = `
+            <li class="active" data-target="pos-view"><a href="#">POS / Scanner Portal</a></li>
+            <li data-target="utang-view"><a href="#">Utang Records</a></li>
+            <li><a href="#" id="logout-btn">Logout</a></li>
+        `;
+        rebindLogout();
+    }
+
+    function rebindLogout() {
+        document.getElementById("logout-btn").addEventListener("click", () => {
+            currentUser = null;
+            stopScanner();
             document.getElementById("app").style.display = "none";
             document.getElementById("auth-screen").style.display = "flex";
         });
@@ -690,9 +709,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     function setupNavigation() {
         const menuItems = document.querySelectorAll(".sidebar-menu li[data-target]");
         menuItems.forEach(item => {
+            // Remove old listeners by cloning
+            const newItem = item.cloneNode(true);
+            item.parentNode.replaceChild(newItem, item);
+        });
+
+        document.querySelectorAll(".sidebar-menu li[data-target]").forEach(item => {
             item.addEventListener("click", (e) => {
                 e.preventDefault();
-                menuItems.forEach(i => i.classList.remove("active"));
+                document.querySelectorAll(".sidebar-menu li").forEach(i => i.classList.remove("active"));
                 item.classList.add("active");
                 const target = item.getAttribute("data-target");
                 document.querySelectorAll(".view-section").forEach(sec => sec.classList.remove("active"));
@@ -714,14 +739,16 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     function refreshAllViews() {
-        renderDashboard();
-        renderProductsTable();
+        if(currentUser && currentUser.role === "ADMIN") {
+            renderDashboard();
+            renderProductsTable();
+            renderInventoryTable();
+            renderSalesTable();
+            renderExpensesTable();
+            renderCustomersTable();
+        }
         renderPOSProducts();
-        renderInventoryTable();
-        renderSalesTable();
         renderUtangTable();
-        renderCustomersTable();
-        renderExpensesTable();
         populateDropdowns();
     }
 
@@ -735,22 +762,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (target === "customers-view") renderCustomersTable();
         if (target === "expenses-view") renderExpensesTable();
         if (["stockin-view", "stockout-view", "pos-view"].includes(target)) populateDropdowns();
-    }
-
-    // Polling listener for remote scanner portal items
-    async function pollRemoteScannerQueue() {
-        try {
-            const queue = await apiFetch("scanner/poll");
-            if (queue && queue.length > 0) {
-                const products = await apiFetch("products");
-                for (let q of queue) {
-                    const prod = products.find(p => p.barcode === q.barcode);
-                    if (prod) {
-                        addToCart(prod.id);
-                    }
-                }
-            }
-        } catch (err) {}
     }
 
     // ================================
@@ -769,7 +780,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 totalSalesToday += Number(s.total);
                 totalOrdersToday++;
                 if (s.items) {
-                    s.items.forEach(item => {
+                    const parsedItems = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
+                    parsedItems.forEach(item => {
                         todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
                     });
                 }
@@ -847,24 +859,30 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     <td>${p.stock}</td>
                     <td>${statusBadge}</td>
                     <td>
+                        <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto; background:#10b981;" onclick="openPrintBarcode('${p.barcode || ''}', '${p.name.replace(/'/g, "\\'")}', ${p.sellingprice})">Barcode</button>
                         <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(${p.id})">Edit</button>
-                        <button class="btn btn-warning" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="openPrintBarcodeModal('${p.barcode || ''}', '${p.name.replace(/'/g, "\\'")}', ${p.sellingprice})">Print Barcode</button>
-                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(${p.id})">Delete</button>
+                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(${p.id})">Del</button>
                     </td>
                 </tr>
             `;
         });
     }
 
-    function openPrintBarcodeModal(barcode, name, price) {
+    function openPrintBarcode(barcode, name, price) {
         if (!barcode) { alert("This product has no barcode!"); return; }
         document.getElementById("print-prod-name").innerText = name;
         document.getElementById("print-prod-price").innerText = formatCurrency(price);
         document.getElementById("barcode-print-modal").classList.add("active");
         try {
-            JsBarcode("#barcode-svg", barcode, { format: "CODE128", width: 2, height: 60, displayValue: true });
-        } catch(err) {
-            alert("Error generating barcode image: " + err.message);
+            JsBarcode("#barcode-svg", barcode, {
+                format: "CODE128",
+                lineColor: "#000",
+                width: 2,
+                height: 60,
+                displayValue: true
+            });
+        } catch (err) {
+            console.error("Barcode generation error:", err);
         }
     }
 
@@ -894,6 +912,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderPOSProducts() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("pos-product-search-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
             tbody.innerHTML += `
@@ -932,6 +951,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     function renderCart() {
         const tbody = document.getElementById("cart-items-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
 
@@ -1087,13 +1107,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
-        if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+        if (html5QrCode) {
+            html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
+            html5QrCode = null;
+        }
     }
 
-    // Inventory Logs & Actions
+    // Inventory & Stock Logs
     async function renderInventoryTable() {
         const logs = await apiFetch("inventory");
         const tbody = document.getElementById("inventory-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         logs.forEach(l => {
             tbody.innerHTML += `
@@ -1167,6 +1191,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderSalesTable() {
         const sales = await apiFetch("sales");
         const tbody = document.getElementById("sales-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
@@ -1217,6 +1242,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderUtangTable() {
         const utangList = await apiFetch("utang");
         const tbody = document.getElementById("utang-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         utangList.forEach(u => {
             tbody.innerHTML += `
@@ -1284,6 +1310,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderCustomersTable() {
         const customers = await apiFetch("customers");
         const tbody = document.getElementById("customers-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         customers.forEach(c => {
             tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone || '-'}</td><td>${c.email || '-'}</td><td>${c.address || '-'}</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(${c.id})">Delete</button></td></tr>`;
@@ -1307,6 +1334,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderExpensesTable() {
         const expenses = await apiFetch("expenses");
         const tbody = document.getElementById("expenses-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         expenses.forEach(e => {
             tbody.innerHTML += `<tr><td>${e.name}</td><td>${e.category}</td><td>${formatCurrency(e.amount)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${e.notes || '-'}</td></tr>`;
@@ -1338,91 +1366,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
     </script>
 </body>
 </html>
 `;
 
-// ================================
-// DEDICATED SCANNER PORTAL HTML
-// ================================
-const SCANNER_PORTAL_TEMPLATE = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dedicated Mobile POS Scanner</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; text-align: center; margin: 0; padding: 20px; }
-        h2 { color: #10b981; margin-bottom: 10px; }
-        #scanner-interactive { width: 100%; max-width: 400px; height: 320px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #10b981; }
-        #scanner-interactive canvas, #scanner-interactive video { width: 100%; height: 100%; object-fit: cover; }
-        .log-box { margin-top: 20px; background: #222; padding: 15px; border-radius: 8px; max-width: 400px; margin-left: auto; margin-right: auto; font-size: 0.9rem; min-height: 80px; text-align: left; border: 1px solid #333; }
-        .btn-scan { background: #10b981; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 15px; width: 100%; max-width: 400px; }
-        .btn-scan:hover { background: #059669; }
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-</head>
-<body>
-    <h2>📱 Dedicated Mobile Scanner</h2>
-    <p style="color: #aaa; font-size: 0.85rem; margin-bottom: 15px;">Point your phone camera at product barcodes to add them to the main POS cart instantly.</p>
-    
-    <div id="scanner-interactive" class="viewport"></div>
-    
-    <button class="btn-scan" onclick="startDedicatedScanner()">Start Camera Scanner</button>
-    
-    <div class="log-box" id="scan-logs">
-        <strong>Last Scanned:</strong> <span id="last-scanned-val" style="color: #10b981;">None</span>
-    </div>
-
-    <script>
-    let scanner = null;
-
-    function startDedicatedScanner() {
-        if (scanner) return;
-        scanner = new Html5Qrcode("scanner-interactive");
-        scanner.start(
-            { facingMode: "environment" },
-            { fps: 15, qrbox: { width: 260, height: 140 } },
-            async (decodedText) => {
-                document.getElementById("last-scanned-val").innerText = decodedText + " (" + new Date().toLocaleTimeString() + ")";
-                // Send scanned code to backend queue
-                try {
-                    await fetch("/api/scanner/push", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ barcode: decodedText })
-                    });
-                    navigator.vibrate?.(200); // Vibrate feedback on success if supported
-                } catch(err) {
-                    console.error("Failed to push barcode", err);
-                }
-            },
-            (errorMessage) => {}
-        ).catch(err => {
-            alert("Camera initialization error: " + err);
-        });
-    }
-
-    // Auto-start camera on load if possible
-    window.onload = () => {
-        setTimeout(startDedicatedScanner, 500);
-    };
-    </script>
-</body>
-</html>
-`;
-
-// Routes
 app.get("/", (req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.send(HTML_TEMPLATE);
-});
-
-app.get("/scanner", (req, res) => {
-    res.setHeader("Content-Type", "text/html");
-    res.send(SCANNER_PORTAL_TEMPLATE);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
