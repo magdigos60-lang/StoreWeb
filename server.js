@@ -100,10 +100,10 @@ async function initTables() {
         if (settingsCheck.rows.length === 0) {
             await pool.query(`
                 INSERT INTO settings (id, storename, storeaddress, storephone, taxrate, startingcash) 
-                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0)
+                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
         } else {
-            // Check if startingcash column exists if table was already there
+            // Check if startingcash column exists if table already existed
             try {
                 await pool.query("SELECT startingcash FROM settings LIMIT 1");
             } catch (e) {
@@ -176,11 +176,11 @@ app.delete("/api/:table/:id", async (req, res) => {
     }
 });
 
-// Custom endpoint to reset sales
-app.post("/api/reset-sales", async (req, res) => {
+// Custom endpoint to reset all sales and related logs if needed
+app.post("/api/admin/resetsales", async (req, res) => {
     try {
         await pool.query("DELETE FROM sales;");
-        await pool.query("DELETE FROM utang;");
+        await pool.query("DELETE FROM inventory WHERE type = 'Sale';");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -241,25 +241,25 @@ header.topbar { height: 70px; background: white; border-bottom: 1px solid var(--
 .metric-card h3 { font-size: 0.875rem; color: var(--gray); margin-bottom: 0.5rem; text-transform: uppercase; }
 .metric-card .value { font-size: 1.5rem; font-weight: bold; color: var(--dark); }
 .card { background: white; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 1.5rem; margin-bottom: 1.5rem; }
-.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; flex-wrap: wrap; gap: 10px; }
+.card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 table { width: 100%; border-collapse: collapse; text-align: left; }
 th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-size: 0.95rem; }
 th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
-.pos-scanner-box { background: #000; border-radius: 6px; height: 160px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+.pos-scanner-box { background: #000; border-radius: 6px; height: 160px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
 #interactive.viewport { width: 100%; height: 100%; position: absolute; }
 #interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
-.cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); }
-.summary-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1rem; }
-.summary-row.total { font-size: 1.25rem; font-weight: bold; color: var(--primary); border-top: 1px solid var(--border); padding-top: 0.5rem; margin-top: 0.5rem; }
+.cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); flex-shrink: 0; }
+.summary-row { display: flex; justify-content: space-between; margin-bottom: 0.4rem; font-size: 0.95rem; }
+.summary-row.total { font-size: 1.15rem; font-weight: bold; color: var(--primary); border-top: 1px solid var(--border); padding-top: 0.4rem; margin-top: 0.4rem; }
 @media(max-width: 900px) {
     aside { position: fixed; left: -260px; height: 100%; }
     aside.mobile-open { left: 0; }
     .menu-toggle { display: block; }
     .pos-container { grid-template-columns: 1fr; height: auto; overflow-y: auto; }
-    body { overflow: auto; }
+    body { overflow: auto; height: auto; }
 }
 .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: bold; }
 .badge-success { background: #d1fae5; color: #065f46; }
@@ -349,21 +349,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <!-- DASHBOARD VIEW -->
                 <section id="dashboard-view" class="view-section active">
                     <div class="dashboard-grid">
-                        <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
-                        <div class="metric-card success"><h3>Total Cash Sales</h3><div class="value" id="dash-cash-sales">₱0.00</div></div>
-                        <div class="metric-card warning"><h3>Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card success"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
-                        <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
+                        <div class="metric-card success"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
+                        <div class="metric-card success"><h3>Total Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
                         <div class="metric-card warning"><h3>Low Stock Products</h3><div class="value" id="dash-low-stock">0</div></div>
-                        <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
+                        <div class="metric-card"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
-                        <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="switchView('stockin-view')">Stock In</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSales()">Reset Sales</button>
+                        <button class="btn btn-success" style="width: auto;" onclick="openStartingCashModal()">Update Starting Cash</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales Data</button>
                     </div>
                 </section>
 
@@ -498,7 +494,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     <div class="card">
                         <div class="card-header">
                             <h3>Sales History</h3>
-                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSales()">Reset Sales</button>
+                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
                             <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
@@ -554,8 +550,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Name</label><input type="text" id="setting-store-name" class="form-control" required></div>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" value="0"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
@@ -582,6 +578,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <div class="form-group"><label>Selling Price</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
                 <div class="form-group"><label>Stock</label><input type="number" id="prod-stock" class="form-control" value="0" required></div>
                 <button type="submit" class="btn btn-success">Save Product</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="starting-cash-modal" class="modal">
+        <div class="modal-content">
+            <h3>Update Starting Cash (Puhunan)</h3>
+            <form onsubmit="saveStartingCash(event)">
+                <div class="form-group"><label>Current Starting Cash in Drawer</label><input type="number" step="0.01" id="modal-starting-cash-input" class="form-control" required></div>
+                <button type="submit" class="btn btn-success">Save Starting Cash</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
             </form>
         </div>
@@ -650,7 +657,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0 };
     let html5QrCode = null;
 
-    // Beep sound generator using Web Audio API
+    // Beep sound function using Web Audio API
     function playBeep() {
         try {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -690,8 +697,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("setting-store-name").value = appSettings.storename;
         document.getElementById("setting-store-address").value = appSettings.storeaddress || "";
         document.getElementById("setting-store-phone").value = appSettings.storephone || "";
-        document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
         document.getElementById("setting-starting-cash").value = appSettings.startingcash || 0;
+        document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
     }
 
     function setupAuth() {
@@ -786,42 +793,57 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const products = await apiFetch("products");
         const utang = await apiFetch("utang");
 
-        let totalSales = 0, totalOrders = 0, todaysProfit = 0, totalCashSales = 0;
+        const today = new Date().toISOString().slice(0, 10);
+        let totalSalesToday = 0, cashSalesToday = 0, todaysProfit = 0;
 
         sales.forEach(s => {
-            totalSales += Number(s.total);
-            totalOrders++;
-            if (s.paymentmethod === "Cash") {
-                totalCashSales += Number(s.amountpaid > 0 ? s.amountpaid : s.total);
-            }
-            if (s.items) {
-                const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-                itemsParsed.forEach(item => {
-                    todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
-                });
+            if (s.date && s.date.startsWith(today)) {
+                totalSalesToday += Number(s.total);
+                if (s.paymentmethod === "Cash") {
+                    cashSalesToday += Number(s.amountpaid || s.total);
+                }
+                if (s.items) {
+                    const parsedItems = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
+                    parsedItems.forEach(item => {
+                        todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
+                    });
+                }
             }
         });
 
+        const startingCash = Number(appSettings.startingcash || 0);
+        const expectedCashInDrawer = startingCash + cashSalesToday;
         let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
-        let startingCash = Number(appSettings.startingcash || 0);
-        let expectedCash = startingCash + totalCashSales;
 
+        document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
-        document.getElementById("dash-cash-sales").innerText = formatCurrency(totalCashSales);
-        document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
-        document.getElementById("dash-total-sales").innerText = formatCurrency(totalSales);
-        document.getElementById("dash-total-orders").innerText = totalOrders;
-        document.getElementById("dash-total-products").innerText = products.length;
+        document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCashInDrawer);
         document.getElementById("dash-low-stock").innerText = lowStockCount;
         document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
     }
 
-    async function resetAllSales() {
-        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng sales at utang?")) {
-            await apiFetch("reset-sales", "POST");
-            alert("Na-reset na ang sales records.");
+    function openStartingCashModal() {
+        document.getElementById("modal-starting-cash-input").value = appSettings.startingcash || 0;
+        document.getElementById("starting-cash-modal").classList.add("active");
+    }
+
+    async function saveStartingCash(e) {
+        e.preventDefault();
+        const val = parseFloat(document.getElementById("modal-starting-cash-input").value) || 0;
+        appSettings.startingcash = val;
+        await apiFetch("settings/1", "PUT", appSettings);
+        closeModals();
+        loadSettings();
+        renderDashboard();
+        alert("Starting cash updated successfully!");
+    }
+
+    async function resetAllSalesData() {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng benta? Magiging back to zero ito.")) {
+            await fetch("/api/admin/resetsales", { method: "POST" });
+            alert("Na-reset na ang mga benta!");
             refreshAllViews();
         }
     }
@@ -845,12 +867,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         container.innerHTML = "";
         products.forEach((p, idx) => {
             if (!p.barcode) return;
-            container.innerHTML += 
-                '<div class="barcode-card">' +
-                    '<div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + p.name + '</div>' +
-                    '<svg id="barcode-svg-' + idx + '"></svg>' +
-                    '<div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">' + formatCurrency(p.sellingprice) + '</div>' +
-                '</div>';
+            const card = document.createElement("div");
+            card.className = "barcode-card";
+            card.innerHTML = \`
+                <div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">\${p.name}</div>
+                <svg id="barcode-svg-\${idx}"></svg>
+                <div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">\${formatCurrency(p.sellingprice)}</div>
+            \`;
+            container.appendChild(card);
         });
         document.getElementById("print-barcode-modal").classList.add("active");
         setTimeout(() => {
@@ -877,7 +901,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const productData = { barcode, name, category, costprice, sellingprice, stock, minimumstock: 5, createdat: new Date().toISOString() };
 
         if (id) {
-            await apiFetch("products/" + id, "PUT", productData);
+            await apiFetch(\`products/\${id}\`, "PUT", productData);
         } else {
             const res = await apiFetch("products", "POST", productData);
             await apiFetch("inventory", "POST", {
@@ -892,6 +916,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderProductsTable() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("products-table-tbody");
+        if (!tbody) return;
         tbody.innerHTML = "";
         const search = document.getElementById("product-search-input")?.value.toLowerCase() || "";
 
@@ -901,20 +926,21 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (p.stock <= 0) statusBadge = '<span class="badge badge-danger">Out of Stock</span>';
             else if (p.stock <= 5) statusBadge = '<span class="badge badge-warning">Low Stock</span>';
 
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + (p.barcode || '-') + '</td>' +
-                    '<td>' + p.name + '</td>' +
-                    '<td>' + (p.category || '-') + '</td>' +
-                    '<td>' + formatCurrency(p.costprice) + '</td>' +
-                    '<td>' + formatCurrency(p.sellingprice) + '</td>' +
-                    '<td>' + p.stock + '</td>' +
-                    '<td>' + statusBadge + '</td>' +
-                    '<td>' +
-                        '<button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(' + p.id + ')">Edit</button> ' +
-                        '<button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(' + p.id + ')">Delete</button>' +
-                    '</td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${p.barcode || '-'}</td>
+                    <td>\${p.name}</td>
+                    <td>\${p.category || '-'}</td>
+                    <td>\${formatCurrency(p.costprice)}</td>
+                    <td>\${formatCurrency(p.sellingprice)}</td>
+                    <td>\${p.stock}</td>
+                    <td>\${statusBadge}</td>
+                    <td>
+                        <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(\${p.id})">Edit</button>
+                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(\${p.id})">Delete</button>
+                    </td>
+                </tr>
+            \`;
         });
     }
 
@@ -935,7 +961,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     async function deleteProduct(id) {
         if (confirm("Delete this product?")) {
-            await apiFetch("products/" + id, "DELETE");
+            await apiFetch(\`products/\${id}\`, "DELETE");
             refreshAllViews();
         }
     }
@@ -946,33 +972,35 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + p.name + '</td>' +
-                    '<td>' + formatCurrency(p.sellingprice) + '</td>' +
-                    '<td>' + p.stock + '</td>' +
-                    '<td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCartPrompt(' + p.id + ')">Add</button></td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${p.name}</td>
+                    <td>\${formatCurrency(p.sellingprice)}</td>
+                    <td>\${p.stock}</td>
+                    <td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="promptAndAddToCart(\${p.id})">Add</button></td>
+                </tr>
+            \`;
         });
     }
 
-    async function addToCartPrompt(productId, scannedQty = null) {
+    async function promptAndAddToCart(productId) {
         const products = await apiFetch("products");
         const product = products.find(p => p.id === productId);
         if (!product) return;
+        const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+        if (qtyStr === null) return;
+        const qty = parseInt(qtyStr);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
+    }
 
-        let qty = scannedQty;
-        if (qty === null) {
-            let input = prompt("Ilan ang piraso (quantity) para sa " + product.name + "?", "1");
-            if (input === null) return;
-            qty = parseInt(input);
-            if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
-        }
-
-        if (product.stock < qty) { alert("Insufficient stock! Natitirang stock: " + product.stock); return; }
+    async function addToCart(productId, qty = 1) {
+        const products = await apiFetch("products");
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        if (product.stock < qty) { alert("Insufficient stock!"); return; }
 
         playBeep();
-
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
             if (product.stock < existing.quantity + qty) { alert("Insufficient stock!"); return; }
@@ -999,18 +1027,19 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + item.name + '</td>' +
-                    '<td>' +
-                        '<button onclick="updateCartQty(' + index + ', -1)">-</button> ' +
-                        item.quantity +
-                        ' <button onclick="updateCartQty(' + index + ', 1)">+</button>' +
-                    '</td>' +
-                    '<td>' + formatCurrency(item.sellingPrice) + '</td>' +
-                    '<td>' + formatCurrency(itemSub) + '</td>' +
-                    '<td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${item.name}</td>
+                    <td>
+                        <button onclick="updateCartQty(\${index}, -1)">-</button>
+                        \${item.quantity}
+                        <button onclick="updateCartQty(\${index}, 1)">+</button>
+                    </td>
+                    <td>\${formatCurrency(item.sellingPrice)}</td>
+                    <td>\${formatCurrency(itemSub)}</td>
+                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(\${index})">X</button></td>
+                </tr>
+            \`;
         });
 
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
@@ -1036,7 +1065,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.barcode === code);
         if (product) {
             inputField.value = "";
-            await addToCartPrompt(product.id);
+            const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+            if (qtyStr !== null) {
+                const qty = parseInt(qtyStr);
+                if (!isNaN(qty) && qty > 0) {
+                    addToCart(product.id, qty);
+                }
+            }
             inputField.focus();
         } else {
             alert("Product not found: " + code);
@@ -1124,7 +1159,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (prod) {
                 const prevStock = prod.stock;
                 prod.stock -= item.quantity;
-                await apiFetch("products/" + prod.id, "PUT", {
+                await apiFetch(\`products/\${prod.id}\`, "PUT", {
                     barcode: prod.barcode, name: prod.name, category: prod.category,
                     costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
                 });
@@ -1149,8 +1184,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             const product = products.find(p => p.barcode === decodedText);
             if (product) {
                 stopScanner();
-                await addToCartPrompt(product.id);
-                setTimeout(() => startScanner(), 1000);
+                const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+                if (qtyStr !== null) {
+                    const qty = parseInt(qtyStr);
+                    if (!isNaN(qty) && qty > 0) addToCart(product.id, qty);
+                }
             }
         }).catch(err => alert("Camera error: " + err));
     }
@@ -1164,17 +1202,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         logs.forEach(l => {
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + new Date(l.date).toLocaleString() + '</td>' +
-                    '<td>' + l.productname + '</td>' +
-                    '<td><span class="badge ' + (l.type === 'Stock In' ? 'badge-success' : 'badge-danger') + '">' + l.type + '</span></td>' +
-                    '<td>' + l.quantity + '</td>' +
-                    '<td>' + l.previousstock + '</td>' +
-                    '<td>' + l.newstock + '</td>' +
-                    '<td>' + (l.reason || '-') + '</td>' +
-                    '<td>' + l.user + '</td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${new Date(l.date).toLocaleString()}</td>
+                    <td>\${l.productname}</td>
+                    <td><span class="badge \${l.type === 'Stock In' ? 'badge-success' : 'badge-danger'}">\${l.type}</span></td>
+                    <td>\${l.quantity}</td>
+                    <td>\${l.previousstock}</td>
+                    <td>\${l.newstock}</td>
+                    <td>\${l.reason || '-'}</td>
+                    <td>\${l.user}</td>
+                </tr>
+            \`;
         });
     }
 
@@ -1189,7 +1228,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (prod) {
             const prevStock = prod.stock;
             prod.stock += qty;
-            await apiFetch("products/" + prod.id, "PUT", {
+            await apiFetch(\`products/\${prod.id}\`, "PUT", {
                 barcode: prod.barcode, name: prod.name, category: prod.category,
                 costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
             });
@@ -1216,7 +1255,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (prod.stock < qty) { alert("Exceeds current stock!"); return; }
             const prevStock = prod.stock;
             prod.stock -= qty;
-            await apiFetch("products/" + prod.id, "PUT", {
+            await apiFetch(\`products/\${prod.id}\`, "PUT", {
                 barcode: prod.barcode, name: prod.name, category: prod.category,
                 costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
             });
@@ -1238,17 +1277,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + s.transactionnumber + '</td>' +
-                    '<td>' + new Date(s.date).toLocaleString() + '</td>' +
-                    '<td>' + totalQty + '</td>' +
-                    '<td>' + formatCurrency(s.total) + '</td>' +
-                    '<td>' + formatCurrency(s.amountpaid) + '</td>' +
-                    '<td>' + s.paymentmethod + '</td>' +
-                    '<td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td>' +
-                    '<td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${s.transactionnumber}</td>
+                    <td>\${new Date(s.date).toLocaleString()}</td>
+                    <td>\${totalQty}</td>
+                    <td>\${formatCurrency(s.total)}</td>
+                    <td>\${formatCurrency(s.amountpaid)}</td>
+                    <td>\${s.paymentmethod}</td>
+                    <td><span class="badge \${s.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${s.status}</span></td>
+                    <td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(\${s.id})">Void</button></td>
+                </tr>
+            \`;
         });
     }
 
@@ -1265,7 +1305,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 if (prod) {
                     const prevStock = prod.stock;
                     prod.stock += item.quantity;
-                    await apiFetch("products/" + prod.id, "PUT", {
+                    await apiFetch(\`products/\${prod.id}\`, "PUT", {
                         barcode: prod.barcode, name: prod.name, category: prod.category,
                         costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
                     });
@@ -1275,7 +1315,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     });
                 }
             }
-            await apiFetch("sales/" + id, "DELETE");
+            await apiFetch(\`sales/\${id}\`, "DELETE");
             refreshAllViews();
         }
     }
@@ -1286,16 +1326,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         utangList.forEach(u => {
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + u.customername + '</td>' +
-                    '<td>' + formatCurrency(u.originalamount) + '</td>' +
-                    '<td>' + formatCurrency(u.amountpaid) + '</td>' +
-                    '<td>' + formatCurrency(u.remainingbalance) + '</td>' +
-                    '<td>' + (u.duedate ? new Date(u.duedate).toLocaleDateString() : '-') + '</td>' +
-                    '<td><span class="badge ' + (u.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + u.status + '</span></td>' +
-                    '<td>' + (u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : '') + '</td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${u.customername}</td>
+                    <td>\${formatCurrency(u.originalamount)}</td>
+                    <td>\${formatCurrency(u.amountpaid)}</td>
+                    <td>\${formatCurrency(u.remainingbalance)}</td>
+                    <td>\${u.duedate ? new Date(u.duedate).toLocaleDateString() : '-'}</td>
+                    <td><span class="badge \${u.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${u.status}</span></td>
+                    <td>\${u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : ''}</td>
+                </tr>
+            \`;
         });
     }
 
@@ -1325,7 +1366,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         let history = typeof u.paymenthistory === 'string' ? JSON.parse(u.paymenthistory || '[]') : (u.paymenthistory || []);
         history.push({ date: new Date().toISOString(), amount, method: "Cash", receivedBy: currentUser ? currentUser.username : "Admin" });
 
-        await apiFetch("utang/" + u.id, "PUT", {
+        await apiFetch(\`utang/\${u.id}\`, "PUT", {
             customerid: u.customerid, customername: u.customername, transactionid: u.transactionid,
             originalamount: u.originalamount, amountpaid: u.amountpaid, remainingbalance: u.remainingbalance,
             status: u.status, datecreated: u.datecreated, duedate: u.duedate, paymenthistory: JSON.stringify(history)
@@ -1353,10 +1394,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         customers.forEach(c => {
-            tbody.innerHTML += '<tr><td>' + c.name + '</td><td>' + (c.phone || '-') + '</td><td>' + (c.email || '-') + '</td><td>' + (c.address || '-') + '</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(' + c.id + ')">Delete</button></td></tr>';
+            tbody.innerHTML += \`<tr><td>\${c.name}</td><td>\${c.phone || '-'}</td><td>\${c.email || '-'}</td><td>\${c.address || '-'}</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(\${c.id})">Delete</button></td></tr>\`;
         });
     }
-    async function deleteCustomer(id) { if (confirm("Delete customer?")) { await apiFetch("customers/" + id, "DELETE"); refreshAllViews(); } }
+    async function deleteCustomer(id) { if (confirm("Delete customer?")) { await apiFetch(\`customers/\${id}\`, "DELETE"); refreshAllViews(); } }
 
     function openAddExpenseModal() { document.getElementById("expense-form").reset(); document.getElementById("expense-modal").classList.add("active"); }
     async function saveExpense(e) {
@@ -1377,7 +1418,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         expenses.forEach(e => {
-            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td>' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td></tr>';
+            tbody.innerHTML += \`<tr><td>\${e.name}</td><td>\${e.category}</td><td>\${formatCurrency(e.amount)}</td><td>\${new Date(e.date).toLocaleDateString()}</td><td>\${e.notes || '-'}</td></tr>\`;
         });
     }
 
@@ -1386,13 +1427,12 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         appSettings.storename = document.getElementById("setting-store-name").value;
         appSettings.storeaddress = document.getElementById("setting-store-address").value;
         appSettings.storephone = document.getElementById("setting-store-phone").value;
-        appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
         appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
+        appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
 
         await apiFetch("settings/1", "PUT", appSettings);
         alert("Settings saved!");
         loadSettings();
-        renderDashboard();
     }
 
     async function populateDropdowns() {
@@ -1402,9 +1442,9 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const stockoutSelect = document.getElementById("stockout-product");
         const utangCustSelect = document.getElementById("pos-utang-customer");
 
-        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
-        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
-        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
+        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
+        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
+        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += \`<option value="\${c.id}">\${c.name}</option>\`); }
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
@@ -1426,10 +1466,10 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     <style>${EMBEDDED_CSS}
     body { height: 100vh; overflow: auto; background: #f3f4f6; }
     .cashier-topbar { height: 60px; background: var(--dark); color: white; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
-    .cashier-main { padding: 1rem; }
+    .cashier-main { padding: 10px; max-width: 1200px; margin: 0 auto; }
     @media(max-width: 900px) {
-        .pos-container { display: flex; flex-direction: column; height: auto !important; }
-        .pos-left, .pos-right { height: auto !important; margin-bottom: 1rem; }
+        .pos-container { grid-template-columns: 1fr; height: auto; }
+        .pos-left, .pos-right { height: auto; margin-bottom: 15px; }
     }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
@@ -1438,6 +1478,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     <div class="cashier-topbar">
         <h2 id="cashier-store-title" style="font-size: 1.1rem;">Cashier Portal</h2>
         <div>
+            <span style="font-size: 0.8rem; margin-right: 10px; color: #10b981; font-weight: bold;">● Online</span>
             <a href="/" class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.8rem; width: auto; display:inline-block;">Admin Login</a>
         </div>
     </div>
@@ -1446,7 +1487,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         <div class="pos-container">
             <div class="pos-left">
                 <div style="display:flex; justify-content:space-between; margin-bottom: 10px;">
-                    <h3>Scanner & Products</h3>
+                    <h3>Barcode Scanner & Products</h3>
                     <div>
                         <button class="btn btn-success" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="startScanner()">Start Cam</button>
                         <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
@@ -1507,7 +1548,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     <script>
     let cart = [];
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
-    let currentUser = { username: "Cashier Terminal", role: "CASHIER" };
     let html5QrCode = null;
 
     function playBeep() {
@@ -1544,7 +1584,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (settingsList.length > 0) {
             appSettings = settingsList[0];
         }
-        document.getElementById("cashier-store-title").innerText = appSettings.storename + " - Cashier";
+        document.getElementById("cashier-store-title").innerText = appSettings.storename + " - Cashier Portal";
     }
 
     function setupManualBarcodeListener() {
@@ -1566,33 +1606,35 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + p.name + '</td>' +
-                    '<td>' + formatCurrency(p.sellingprice) + '</td>' +
-                    '<td>' + p.stock + '</td>' +
-                    '<td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCartPrompt(' + p.id + ')">Add</button></td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${p.name}</td>
+                    <td>\${formatCurrency(p.sellingprice)}</td>
+                    <td>\${p.stock}</td>
+                    <td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="promptAndAddToCart(\${p.id})">Add</button></td>
+                </tr>
+            \`;
         });
     }
 
-    async function addToCartPrompt(productId, scannedQty = null) {
+    async function promptAndAddToCart(productId) {
         const products = await apiFetch("products");
         const product = products.find(p => p.id === productId);
         if (!product) return;
+        const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+        if (qtyStr === null) return;
+        const qty = parseInt(qtyStr);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
+    }
 
-        let qty = scannedQty;
-        if (qty === null) {
-            let input = prompt("Ilan ang piraso (quantity) para sa " + product.name + "?", "1");
-            if (input === null) return;
-            qty = parseInt(input);
-            if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
-        }
-
-        if (product.stock < qty) { alert("Insufficient stock! Natitirang stock: " + product.stock); return; }
+    async function addToCart(productId, qty = 1) {
+        const products = await apiFetch("products");
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        if (product.stock < qty) { alert("Insufficient stock!"); return; }
 
         playBeep();
-
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
             if (product.stock < existing.quantity + qty) { alert("Insufficient stock!"); return; }
@@ -1618,18 +1660,19 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
-            tbody.innerHTML += 
-                '<tr>' +
-                    '<td>' + item.name + '</td>' +
-                    '<td>' +
-                        '<button onclick="updateCartQty(' + index + ', -1)">-</button> ' +
-                        item.quantity +
-                        ' <button onclick="updateCartQty(' + index + ', 1)">+</button>' +
-                    '</td>' +
-                    '<td>' + formatCurrency(item.sellingPrice) + '</td>' +
-                    '<td>' + formatCurrency(itemSub) + '</td>' +
-                    '<td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td>' +
-                '</tr>';
+            tbody.innerHTML += \`
+                <tr>
+                    <td>\${item.name}</td>
+                    <td>
+                        <button onclick="updateCartQty(\${index}, -1)">-</button>
+                        \${item.quantity}
+                        <button onclick="updateCartQty(\${index}, 1)">+</button>
+                    </td>
+                    <td>\${formatCurrency(item.sellingPrice)}</td>
+                    <td>\${formatCurrency(itemSub)}</td>
+                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(\${index})">X</button></td>
+                </tr>
+            \`;
         });
 
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
@@ -1655,7 +1698,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.barcode === code);
         if (product) {
             inputField.value = "";
-            await addToCartPrompt(product.id);
+            const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+            if (qtyStr !== null) {
+                const qty = parseInt(qtyStr);
+                if (!isNaN(qty) && qty > 0) {
+                    addToCart(product.id, qty);
+                }
+            }
             inputField.focus();
         } else {
             alert("Product not found: " + code);
@@ -1742,7 +1791,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             if (prod) {
                 const prevStock = prod.stock;
                 prod.stock -= item.quantity;
-                await apiFetch("products/" + prod.id, "PUT", {
+                await apiFetch(\`products/\${prod.id}\`, "PUT", {
                     barcode: prod.barcode, name: prod.name, category: prod.category,
                     costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
                 });
@@ -1769,8 +1818,11 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             const product = products.find(p => p.barcode === decodedText);
             if (product) {
                 stopScanner();
-                await addToCartPrompt(product.id);
-                setTimeout(() => startScanner(), 1000);
+                const qtyStr = prompt(\`Ilan ang piraso ng "\${product.name}"?\`, "1");
+                if (qtyStr !== null) {
+                    const qty = parseInt(qtyStr);
+                    if (!isNaN(qty) && qty > 0) addToCart(product.id, qty);
+                }
             }
         }).catch(err => alert("Camera error: " + err));
     }
@@ -1781,7 +1833,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     async function populateDropdowns() {
         const customers = await apiFetch("customers");
         const utangCustSelect = document.getElementById("pos-utang-customer");
-        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
+        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += \`<option value="\${c.id}">\${c.name}</option>\`); }
     }
 
     function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
