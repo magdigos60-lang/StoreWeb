@@ -10,6 +10,9 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// In-memory queue for cross-device scanner communication
+let liveScannerQueue = [];
+
 // PostgreSQL Connection Pool (Supabase / External DB)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres",
@@ -169,6 +172,18 @@ app.delete("/api/:table/:id", async (req, res) => {
     }
 });
 
+// Live Scanner Queue Endpoints for Dedicated Scanner Portal
+app.post("/api/scanner/push", (req, res) => {
+    const { barcode } = req.body;
+    liveScannerQueue.push({ barcode, timestamp: Date.now() });
+    res.json({ success: true });
+});
+
+app.get("/api/scanner/poll", (req, res) => {
+    res.json(liveScannerQueue);
+    liveScannerQueue = []; // clear queue after polling
+});
+
 // ================================
 // EMBEDDED CSS
 // ================================
@@ -229,9 +244,9 @@ th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-siz
 th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
-.pos-scanner-box { background: #000; border-radius: 6px; height: 180px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
-#interactive.viewport { width: 100%; height: 100%; position: absolute; }
-#interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
+.pos-scanner-box { background: #000; border-radius: 6px; height: 200px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+#interactive.viewport, #scanner-interactive.viewport { width: 100%; height: 100%; position: absolute; }
+#interactive.viewport canvas, #interactive.viewport video, #scanner-interactive.viewport canvas, #scanner-interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
 .cart-summary-box { background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border); }
 .summary-row { display: flex; justify-content: space-between; margin-bottom: 0.5rem; font-size: 1rem; }
@@ -252,7 +267,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 `;
 
 // ================================
-// HTML TEMPLATE (MAIN APP)
+// HTML TEMPLATE (ADMIN & POS)
 // ================================
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
@@ -302,6 +317,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <li data-target="customers-view"><a href="#">Customers</a></li>
                 <li data-target="expenses-view"><a href="#">Expenses</a></li>
                 <li data-target="settings-view"><a href="#">Settings</a></li>
+                <li><a href="/scanner" target="_blank" style="color: #10b981; font-weight: bold;">📱 Open Dedicated Scanner Portal</a></li>
                 <li><a href="#" id="logout-btn">Logout</a></li>
             </ul>
         </aside>
@@ -333,6 +349,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
                         <button class="btn btn-warning" style="width: auto;" onclick="switchView('stockin-view')">Stock In</button>
                         <button class="btn btn-danger" style="width: auto;" onclick="switchView('utang-view')">View Utang</button>
+                        <a href="/scanner" target="_blank" class="btn btn-success" style="width: auto; text-decoration:none; display:inline-flex; align-items:center;">📱 Dedicated Scanner Portal</a>
                     </div>
                 </section>
 
@@ -340,17 +357,16 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <section id="pos-view" class="view-section">
                     <div class="pos-container">
                         <div class="pos-left">
-                            <div style="display:flex; justify-content:space-between; margin-bottom: 10px; align-items:center; flex-wrap:wrap; gap:5px;">
+                            <div style="display:flex; justify-content:space-between; margin-bottom: 10px;">
                                 <h3>Scanner & Products</h3>
-                                <div style="display:flex; gap:5px; align-items:center;">
-                                    <a href="/scanner" target="_blank" class="btn btn-warning" style="padding: 0.25rem 0.5rem; font-size:0.75rem; text-decoration:none;">📱 Dedicated Scanner Link</a>
-                                    <button class="btn btn-success" style="padding: 0.25rem 0.5rem; font-size:0.75rem; width:auto;" onclick="startScanner()">Start Cam</button>
-                                    <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size:0.75rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
+                                <div>
+                                    <button class="btn btn-success" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="startScanner()">Start Cam</button>
+                                    <button class="btn btn-danger" style="padding: 0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
                                 </div>
                             </div>
                             <div class="pos-scanner-box">
                                 <div id="interactive" class="viewport"></div>
-                                <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview</div>
+                                <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview (Main)</div>
                             </div>
                             <div style="display:flex; gap:10px; margin-bottom:10px;">
                                 <input type="text" id="manual-barcode-input" class="form-control" placeholder="Scan barcode or type & enter...">
@@ -596,6 +612,22 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
+    <!-- Barcode Print Preview Modal -->
+    <div id="barcode-print-modal" class="modal">
+        <div class="modal-content" style="max-width: 400px; text-align: center;">
+            <h3>Print Barcode Label</h3>
+            <div id="barcode-preview-container" style="margin: 20px 0; background: #fff; padding: 15px; border: 1px dashed #ccc; display: inline-block;">
+                <p id="print-prod-name" style="font-weight: bold; font-size: 14px; margin-bottom: 5px;"></p>
+                <svg id="barcode-svg"></svg>
+                <p id="print-prod-price" style="font-size: 14px; margin-top: 5px;"></p>
+            </div>
+            <div>
+                <button class="btn btn-success" onclick="window.print()">Print Label</button>
+                <button class="btn btn-secondary" onclick="closeModals()" style="margin-top: 10px;">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- CLIENT SCRIPT ENGINE -->
     <script>
     let currentUser = null;
@@ -607,6 +639,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         await loadSettings();
         setupNavigation();
         setupAuth();
+        // Background polling for remote scanner device inputs
+        setInterval(pollRemoteScannerQueue, 1500);
     });
 
     async function apiFetch(endpoint, method = "GET", data = null) {
@@ -703,6 +737,25 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (["stockin-view", "stockout-view", "pos-view"].includes(target)) populateDropdowns();
     }
 
+    // Polling listener for remote scanner portal items
+    async function pollRemoteScannerQueue() {
+        try {
+            const queue = await apiFetch("scanner/poll");
+            if (queue && queue.length > 0) {
+                const products = await apiFetch("products");
+                for (let q of queue) {
+                    const prod = products.find(p => p.barcode === q.barcode);
+                    if (prod) {
+                        addToCart(prod.id);
+                    }
+                }
+            }
+        } catch (err) {}
+    }
+
+    // ================================
+    // MODULE FUNCTIONS
+    // ================================
     async function renderDashboard() {
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
@@ -786,10 +839,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
             tbody.innerHTML += \`
                 <tr>
-                    <td>
-                        \${p.barcode || '-'} 
-                        \${p.barcode ? \`<button class="btn btn-warning" style="padding:0.1rem 0.3rem; font-size:0.7rem; width:auto; margin-left:5px;" onclick="printBarcode('\${p.barcode}', '\${p.name}', '\${p.sellingprice}')">🖨️ Print</button>\` : ''}
-                    </td>
+                    <td>\${p.barcode || '-'}</td>
                     <td>\${p.name}</td>
                     <td>\${p.category || '-'}</td>
                     <td>\${formatCurrency(p.costprice)}</td>
@@ -798,6 +848,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     <td>\${statusBadge}</td>
                     <td>
                         <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(\${p.id})">Edit</button>
+                        <button class="btn btn-warning" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="openPrintBarcodeModal('\${p.barcode || ''}', '\${p.name.replace(/'/g, "\\\\'")}', \${p.sellingprice})">Print Barcode</button>
                         <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(\${p.id})">Delete</button>
                     </td>
                 </tr>
@@ -805,34 +856,16 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         });
     }
 
-    function printBarcode(code, name, price) {
-        const printWindow = window.open('', '_blank', 'height=500,width=600');
-        printWindow.document.write(\`
-            <html>
-            <head>
-                <title>Print Barcode - \${name}</title>
-                <style>
-                    body { font-family: Arial, sans-serif; text-align: center; padding: 20px; }
-                    .barcode-box { border: 1px dashed #333; display: inline-block; padding: 15px; border-radius: 8px; margin: 10px; }
-                    h3 { margin: 5px 0; font-size: 16px; }
-                    p { margin: 5px 0; font-size: 14px; font-weight: bold; }
-                </style>
-            </head>
-            <body>
-                <div class="barcode-box">
-                    <h3>\${name}</h3>
-                    <p>\${formatCurrency(price)}</p>
-                    <svg id="bcode"></svg>
-                </div>
-                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\\/script>
-                <script>
-                    JsBarcode("#bcode", "\${code}", { format: "CODE128", width: 2, height: 60, displayValue: true });
-                    window.onload = function() { window.print(); window.close(); }
-                <\\/script>
-            </body>
-            </html>
-        \`);
-        printWindow.document.close();
+    function openPrintBarcodeModal(barcode, name, price) {
+        if (!barcode) { alert("This product has no barcode!"); return; }
+        document.getElementById("print-prod-name").innerText = name;
+        document.getElementById("print-prod-price").innerText = formatCurrency(price);
+        document.getElementById("barcode-print-modal").classList.add("active");
+        try {
+            JsBarcode("#barcode-svg", barcode, { format: "CODE128", width: 2, height: 60, displayValue: true });
+        } catch(err) {
+            alert("Error generating barcode image: " + err.message);
+        }
     }
 
     async function editProduct(id) {
@@ -857,6 +890,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
+    // POS & Cart
     async function renderPOSProducts() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("pos-product-search-tbody");
@@ -1042,6 +1076,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         refreshAllViews();
     }
 
+    // Camera Scanner
     function startScanner() {
         const config = { fps: 10, qrbox: { width: 250, height: 150 } };
         html5QrCode = new Html5Qrcode("interactive");
@@ -1055,6 +1090,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (html5QrCode) html5QrCode.stop().then(() => html5QrCode.clear()).catch(() => {});
     }
 
+    // Inventory Logs & Actions
     async function renderInventoryTable() {
         const logs = await apiFetch("inventory");
         const tbody = document.getElementById("inventory-table-tbody");
@@ -1127,6 +1163,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
+    // Sales, Utang, Customers, Expenses
     async function renderSalesTable() {
         const sales = await apiFetch("sales");
         const tbody = document.getElementById("sales-table-tbody");
@@ -1308,64 +1345,76 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 `;
 
 // ================================
-// STANDALONE MOBILE SCANNER PAGE ROUTE (/scanner)
+// DEDICATED SCANNER PORTAL HTML
 // ================================
-const SCANNER_PAGE_TEMPLATE = `<!DOCTYPE html>
+const SCANNER_PORTAL_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dedicated Phone Scanner - SmartStore</title>
+    <title>Dedicated Mobile POS Scanner</title>
     <style>
-        body { font-family: sans-serif; background: #111; color: #fff; text-align: center; padding: 1rem; }
-        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
-        .btn { background: #10b981; color: white; border: none; padding: 12px 20px; font-size: 1rem; border-radius: 6px; cursor: pointer; margin-top: 15px; width: 100%; max-width: 300px; font-weight: bold; }
-        #result-box { margin-top: 20px; font-size: 1.2rem; background: #222; padding: 15px; border-radius: 8px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #111; color: #fff; text-align: center; margin: 0; padding: 20px; }
+        h2 { color: #10b981; margin-bottom: 10px; }
+        #scanner-interactive { width: 100%; max-width: 400px; height: 320px; margin: 0 auto; background: #000; border-radius: 12px; overflow: hidden; position: relative; border: 2px solid #10b981; }
+        #scanner-interactive canvas, #scanner-interactive video { width: 100%; height: 100%; object-fit: cover; }
+        .log-box { margin-top: 20px; background: #222; padding: 15px; border-radius: 8px; max-width: 400px; margin-left: auto; margin-right: auto; font-size: 0.9rem; min-height: 80px; text-align: left; border: 1px solid #333; }
+        .btn-scan { background: #10b981; color: white; border: none; padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 15px; width: 100%; max-width: 400px; }
+        .btn-scan:hover { background: #059669; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
-    <h2>📱 Standalone Phone Scanner</h2>
-    <p style="color:#aaa; font-size:0.9rem;">Point your camera at any product barcode to send it directly to the POS system.</p>
+    <h2>📱 Dedicated Mobile Scanner</h2>
+    <p style="color: #aaa; font-size: 0.85rem; margin-bottom: 15px;">Point your phone camera at product barcodes to add them to the main POS cart instantly.</p>
     
-    <div id="reader"></div>
+    <div id="scanner-interactive" class="viewport"></div>
     
-    <div id="result-box">
-        <div id="scanned-status" style="color: #f59e0b;">Waiting for scan...</div>
+    <button class="btn-scan" onclick="startDedicatedScanner()">Start Camera Scanner</button>
+    
+    <div class="log-box" id="scan-logs">
+        <strong>Last Scanned:</strong> <span id="last-scanned-val" style="color: #10b981;">None</span>
     </div>
-    
-    <button class="btn" onclick="location.reload()">Restart Scanner</button>
 
     <script>
-    async function apiFetch(endpoint, method = "GET", data = null) {
-        const options = { method, headers: { "Content-Type": "application/json" } };
-        if (data) options.body = JSON.stringify(data);
-        const res = await fetch("/api/" + endpoint, options);
-        return await res.json();
+    let scanner = null;
+
+    function startDedicatedScanner() {
+        if (scanner) return;
+        scanner = new Html5Qrcode("scanner-interactive");
+        scanner.start(
+            { facingMode: "environment" },
+            { fps: 15, qrbox: { width: 260, height: 140 } },
+            async (decodedText) => {
+                document.getElementById("last-scanned-val").innerText = decodedText + " (" + new Date().toLocaleTimeString() + ")";
+                // Send scanned code to backend queue
+                try {
+                    await fetch("/api/scanner/push", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ barcode: decodedText })
+                    });
+                    navigator.vibrate?.(200); // Vibrate feedback on success if supported
+                } catch(err) {
+                    console.error("Failed to push barcode", err);
+                }
+            },
+            (errorMessage) => {}
+        ).catch(err => {
+            alert("Camera initialization error: " + err);
+        });
     }
 
-    async function onScanSuccess(decodedText) {
-        document.getElementById("scanned-status").innerHTML = "Scanned: <b>" + decodedText + "</b>. Checking product...";
-        const products = await apiFetch("products");
-        const product = products.find(p => p.barcode === decodedText);
-        
-        if (product) {
-            // NOTE: If you are running multiple clients, you can expand this to add to active cart via database session or handle manual entry.
-            document.getElementById("scanned-status").innerHTML = "<span style='color:#10b981;'>✔ Found: " + product.name + " (₱" + product.sellingprice + ")</span>";
-            if (navigator.vibrate) navigator.vibrate(200);
-        } else {
-            document.getElementById("scanned-status").innerHTML = "<span style='color:#ef4444;'>❌ Barcode not found: " + decodedText + "</span>";
-        }
-    }
-
-    const html5QrCode = new Html5Qrcode("reader");
-    html5QrCode.start({ facingMode: "environment" }, { fps: 15, qrbox: { width: 250, height: 150 } }, onScanSuccess)
-        .catch(err => { document.getElementById("scanned-status").innerText = "Camera Error: " + err; });
+    // Auto-start camera on load if possible
+    window.onload = () => {
+        setTimeout(startDedicatedScanner, 500);
+    };
     </script>
 </body>
 </html>
 `;
 
+// Routes
 app.get("/", (req, res) => {
     res.setHeader("Content-Type", "text/html");
     res.send(HTML_TEMPLATE);
@@ -1373,7 +1422,7 @@ app.get("/", (req, res) => {
 
 app.get("/scanner", (req, res) => {
     res.setHeader("Content-Type", "text/html");
-    res.send(SCANNER_PAGE_TEMPLATE);
+    res.send(SCANER_PORTAL_TEMPLATE);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
