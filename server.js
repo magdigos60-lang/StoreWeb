@@ -10,13 +10,11 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// PostgreSQL Connection Pool (Supabase / External DB)
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:YOUR_PASSWORD@db.YOUR_PROJECT.supabase.co:5432/postgres",
     ssl: { rejectUnauthorized: false }
 });
 
-// Auto-create database tables kung wala pa
 async function initTables() {
     try {
         await pool.query(`
@@ -92,7 +90,7 @@ async function initTables() {
                 storeaddress TEXT,
                 storephone TEXT,
                 taxrate NUMERIC,
-                startingcash NUMERIC DEFAULT 0
+                startingcash NUMERIC
             );
         `);
         
@@ -100,10 +98,9 @@ async function initTables() {
         if (settingsCheck.rows.length === 0) {
             await pool.query(`
                 INSERT INTO settings (id, storename, storeaddress, storephone, taxrate, startingcash) 
-                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
+                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 1000.00)
             `);
         }
-        
         console.log("Database tables verified/created successfully.");
     } catch (err) {
         console.error("Error creating tables:", err);
@@ -112,9 +109,6 @@ async function initTables() {
 
 initTables();
 
-// ================================
-// REST API ENDPOINTS
-// ================================
 app.get("/api/:table", async (req, res) => {
     try {
         const { table } = req.params;
@@ -131,10 +125,10 @@ app.post("/api/:table", async (req, res) => {
         const data = req.body;
         const keys = Object.keys(data);
         const values = Object.values(data);
-        const placeholders = keys.map((_, i) => `$${i + 1}`).join(", ");
-        const columns = keys.map(k => `"${k}"`).join(", ");
+        const placeholders = keys.map((_, i) => "$" + (i + 1)).join(", ");
+        const columns = keys.map(k => '"' + k + '"').join(", ");
 
-        const query = `INSERT INTO ${table} (${columns}) VALUES (${placeholders}) RETURNING id;`;
+        const query = "INSERT INTO " + table + " (" + columns + ") VALUES (" + placeholders + ") RETURNING id;";
         const result = await pool.query(query, values);
         res.json({ id: result.rows[0].id, success: true });
     } catch (err) {
@@ -149,9 +143,9 @@ app.put("/api/:table/:id", async (req, res) => {
         delete data.id;
         const keys = Object.keys(data);
         const values = Object.values(data);
-        const setString = keys.map((k, i) => `"${k}" = $${i + 1}`).join(", ");
+        const setString = keys.map((k, i) => '"' + k + '" = $' + (i + 1)).join(", ");
 
-        const query = `UPDATE ${table} SET ${setString} WHERE id = $${keys.length + 1};`;
+        const query = "UPDATE " + table + " SET " + setString + " WHERE id = $" + (keys.length + 1) + ";";
         await pool.query(query, [...values, id]);
         res.json({ success: true });
     } catch (err) {
@@ -159,9 +153,10 @@ app.put("/api/:table/:id", async (req, res) => {
     }
 });
 
-app.delete("/api/sales/reset", async (req, res) => {
+app.delete("/api/resetsales", async (req, res) => {
     try {
         await pool.query("DELETE FROM sales;");
+        await pool.query("DELETE FROM utang;");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -171,16 +166,13 @@ app.delete("/api/sales/reset", async (req, res) => {
 app.delete("/api/:table/:id", async (req, res) => {
     try {
         const { table, id } = req.params;
-        await pool.query(`DELETE FROM ${table} WHERE id = $1;`, [id]);
+        await pool.query("DELETE FROM " + table + " WHERE id = $1;", [id]);
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// ================================
-// EMBEDDED CSS
-// ================================
 const EMBEDDED_CSS = `
 :root {
     --primary: #4f46e5;
@@ -238,7 +230,7 @@ th, td { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); font-siz
 th { background-color: #f9fafb; font-weight: 600; }
 .pos-container { display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1.5rem; height: calc(100vh - 140px); }
 .pos-left, .pos-right { background: white; border-radius: 8px; display: flex; flex-direction: column; padding: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1); height: 100%; overflow: hidden; }
-.pos-scanner-box { background: #000; border-radius: 6px; height: 180px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+.pos-scanner-box { background: #000; border-radius: 6px; height: 150px; position: relative; margin-bottom: 1rem; overflow: hidden; display: flex; justify-content: center; align-items: center; }
 #interactive.viewport { width: 100%; height: 100%; position: absolute; }
 #interactive.viewport canvas, #interactive.viewport video { width: 100%; height: 100%; object-fit: cover; }
 .cart-items-list { flex-grow: 1; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; margin-bottom: 1rem; }
@@ -266,15 +258,12 @@ th { background-color: #f9fafb; font-weight: 600; }
 .barcode-card { display: inline-block; border: 1px dashed #999; padding: 15px; margin: 10px; text-align: center; border-radius: 6px; background: #fff; width: 220px; }
 `;
 
-// ================================
-// HTML TEMPLATE (ADMIN PORTAL)
-// ================================
-const HTML_TEMPLATE = `<!DOCTYPE html>
+const ADMIN_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title id="page-title">SmartStore POS & Inventory System</title>
+    <title>SmartStore POS & Inventory System</title>
     <style>${EMBEDDED_CSS}</style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
@@ -282,20 +271,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 <body>
     <div id="auth-screen">
         <div class="auth-card">
-            <h2 id="login-store-title">SmartStore Admin</h2>
+            <h2>SmartStore Admin</h2>
             <form id="login-form">
-                <div class="form-group">
-                    <label>Username</label>
-                    <input type="text" id="login-user" class="form-control" value="admin" required>
-                </div>
-                <div class="form-group">
-                    <label>Password</label>
-                    <input type="password" id="login-pass" class="form-control" value="admin123" required>
-                </div>
+                <div class="form-group"><label>Username</label><input type="text" id="login-user" class="form-control" value="admin" required></div>
+                <div class="form-group"><label>Password</label><input type="password" id="login-pass" class="form-control" value="admin123" required></div>
                 <button type="submit" class="btn">Login as Admin</button>
             </form>
             <div style="margin-top: 1.5rem; text-align: center; border-top: 1px solid #eee; padding-top: 1rem;">
-                <a href="/cashier" class="btn btn-success" style="font-size: 0.9rem;">Pumunta sa Cashier Portal (Cell Phone Friendly)</a>
+                <a href="/cashier" class="btn btn-success" style="font-size: 0.9rem;">Pumunta sa Cashier Portal (Cell Phone View)</a>
             </div>
         </div>
     </div>
@@ -326,31 +309,29 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     <h2 id="current-view-title" style="font-size: 1.25rem;">Dashboard</h2>
                 </div>
                 <div class="user-profile">
-                    <a href="/cashier" target="_blank" class="btn btn-warning" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; width:auto; margin-right: 10px;">Open Cashier Portal</a>
+                    <a href="/cashier" target="_blank" class="btn btn-warning" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; width:auto; margin-right: 10px;">Open Cashier Tab</a>
                     <span id="logged-in-user-label" style="font-weight:600;">Admin</span>
                 </div>
             </header>
 
             <div class="views-container">
-                <!-- DASHBOARD VIEW -->
                 <section id="dashboard-view" class="view-section active">
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card warning"><h3>Total Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
+                        <div class="metric-card warning"><h3>Expected Cash sa Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
-                        <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
+                        <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="openStartingCashModal()">Update Starting Cash</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSales()">Reset All Sales</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales</button>
                     </div>
                 </section>
 
-                <!-- POS VIEW -->
                 <section id="pos-view" class="view-section">
                     <div class="pos-container">
                         <div class="pos-left">
@@ -399,7 +380,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                                     </select>
                                 </div>
                                 <div id="cash-payment-fields">
-                                    <div class="form-group"><label>Amount Paid (Pera ng Customer)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
+                                    <div class="form-group"><label>Amount Paid (Ibinayad ng Customer)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
                                     <div class="summary-row"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
                                 </div>
                                 <div id="utang-payment-fields" style="display:none;">
@@ -413,11 +394,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- PRODUCTS VIEW -->
                 <section id="products-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
-                            <h3>Product & Barcode Management</h3>
+                            <h3>Product & Barcodes</h3>
                             <div>
                                 <button class="btn btn-warning" style="width:auto; margin-right: 5px;" onclick="openPrintBarcodeModal()">Print Barcodes</button>
                                 <button class="btn btn-success" style="width:auto;" onclick="openAddProductModal()">Add Product</button>
@@ -431,7 +411,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- INVENTORY VIEW -->
                 <section id="inventory-view" class="view-section">
                     <div class="card">
                         <h3>Inventory Logs</h3>
@@ -442,32 +421,27 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- STOCK IN VIEW -->
                 <section id="stockin-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>Stock In / Restock</h3>
                         <form id="stockin-form" onsubmit="handleStockIn(event)">
                             <div class="form-group"><label>Product</label><select id="stockin-product" class="form-control" required></select></div>
                             <div class="form-group"><label>Quantity</label><input type="number" id="stockin-qty" class="form-control" min="1" required></div>
-                            <div class="form-group"><label>Notes / Supplier</label><input type="text" id="stockin-notes" class="form-control"></div>
+                            <div class="form-group"><label>Notes</label><input type="text" id="stockin-notes" class="form-control"></div>
                             <button type="submit" class="btn btn-success">Save Stock In</button>
                         </form>
                     </div>
                 </section>
 
-                <!-- STOCK OUT VIEW -->
                 <section id="stockout-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
-                        <h3>Stock Out / Adjustments</h3>
+                        <h3>Stock Out</h3>
                         <form id="stockout-form" onsubmit="handleStockOut(event)">
                             <div class="form-group"><label>Product</label><select id="stockout-product" class="form-control" required></select></div>
                             <div class="form-group"><label>Quantity</label><input type="number" id="stockout-qty" class="form-control" min="1" required></div>
                             <div class="form-group"><label>Reason</label>
                                 <select id="stockout-reason" class="form-control">
-                                    <option value="Damaged">Damaged</option>
-                                    <option value="Expired">Expired</option>
-                                    <option value="Lost">Lost</option>
-                                    <option value="Manual Adjustment">Manual Adjustment</option>
+                                    <option value="Damaged">Damaged</option><option value="Expired">Expired</option><option value="Lost">Lost</option><option value="Manual Adjustment">Manual Adjustment</option>
                                 </select>
                             </div>
                             <div class="form-group"><label>Notes</label><input type="text" id="stockout-notes" class="form-control"></div>
@@ -476,12 +450,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- SALES VIEW -->
                 <section id="sales-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
                             <h3>Sales History</h3>
-                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSales()">Reset All Sales</button>
+                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
                             <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
@@ -490,7 +463,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- UTANG VIEW -->
                 <section id="utang-view" class="view-section">
                     <div class="card">
                         <h3>Utang / Credit</h3>
@@ -501,7 +473,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- CUSTOMERS VIEW -->
                 <section id="customers-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -515,7 +486,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- EXPENSES VIEW -->
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -529,7 +499,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- SETTINGS VIEW -->
                 <section id="settings-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>System Settings</h3>
@@ -537,8 +506,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Name</label><input type="text" id="setting-store-name" class="form-control" required></div>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" required></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
@@ -547,7 +516,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Modals -->
     <div id="product-modal" class="modal">
         <div class="modal-content">
             <h3 id="product-modal-title">Add Product</h3>
@@ -566,20 +534,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <div class="form-group"><label>Stock</label><input type="number" id="prod-stock" class="form-control" value="0" required></div>
                 <button type="submit" class="btn btn-success">Save Product</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <div id="starting-cash-modal" class="modal">
-        <div class="modal-content" style="max-width: 400px;">
-            <h3>Update Starting Cash (Puhunan)</h3>
-            <form onsubmit="updateStartingCashSubmit(event)">
-                <div class="form-group" style="margin-top: 15px;">
-                    <label>Magkano ang puhunan o barya sa kaha ngayon?</label>
-                    <input type="number" step="0.01" id="modal-starting-cash-input" class="form-control" required>
-                </div>
-                <button type="submit" class="btn btn-success">I-save ang Puhunan</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Kanselahin</button>
             </form>
         </div>
     </div>
@@ -625,32 +579,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <div id="utang-payment-modal" class="modal">
-        <div class="modal-content">
-            <h3>Record Utang Payment</h3>
-            <form id="utang-pay-form" onsubmit="processUtangPayment(event)">
-                <input type="hidden" id="pay-utang-id">
-                <div class="form-group"><label>Customer: <span id="pay-cust-name"></span></label></div>
-                <div class="form-group"><label>Remaining: <span id="pay-remaining-balance"></span></label></div>
-                <div class="form-group"><label>Amount to Pay</label><input type="number" step="0.01" id="pay-amount" class="form-control" required></div>
-                <button type="submit" class="btn btn-success">Confirm Payment</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- CLIENT SCRIPT ENGINE -->
     <script>
     let currentUser = null;
     let cart = [];
-    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0 };
+    let appSettings = { storeName: "SmartStore POS", storeAddress: "", storePhone: "", taxRate: 0, startingCash: 1000 };
     let html5QrCode = null;
-
-    window.addEventListener("DOMContentLoaded", async () => {
-        await loadSettings();
-        setupNavigation();
-        setupAuth();
-    });
 
     function playBeep() {
         try {
@@ -658,15 +591,20 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = "sine";
-            osc.frequency.value = 880;
-            gain.gain.setValueAtTime(0.15, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start();
             osc.stop(ctx.currentTime + 0.15);
         } catch(e) {}
     }
+
+    window.addEventListener("DOMContentLoaded", async () => {
+        await loadSettings();
+        setupNavigation();
+        setupAuth();
+    });
 
     async function apiFetch(endpoint, method = "GET", data = null) {
         const options = { method, headers: { "Content-Type": "application/json" } };
@@ -680,14 +618,12 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (settingsList.length > 0) {
             appSettings = settingsList[0];
         }
-        document.getElementById("login-store-title").innerText = appSettings.storename;
         document.getElementById("sidebar-store-name").innerText = appSettings.storename;
-        document.getElementById("page-title").innerText = appSettings.storename;
         document.getElementById("setting-store-name").value = appSettings.storename;
         document.getElementById("setting-store-address").value = appSettings.storeaddress || "";
         document.getElementById("setting-store-phone").value = appSettings.storephone || "";
-        document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
         document.getElementById("setting-starting-cash").value = appSettings.startingcash || 0;
+        document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
     }
 
     function setupAuth() {
@@ -705,7 +641,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 alert("Invalid username or password");
             }
         });
-
         document.getElementById("logout-btn").addEventListener("click", () => {
             currentUser = null;
             document.getElementById("app").style.display = "none";
@@ -727,7 +662,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 refreshViewData(target);
             });
         });
-
         document.getElementById("menu-toggle-btn").addEventListener("click", () => {
             document.getElementById("sidebar").classList.toggle("mobile-open");
         });
@@ -778,62 +712,45 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     }
 
     async function renderDashboard() {
-        await loadSettings();
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
         const utang = await apiFetch("utang");
-
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
-                if (s.paymentmethod === "Cash" || s.paymentmethod === "GCash" || s.paymentmethod === "Maya" || s.paymentmethod === "Card") {
-                    totalSalesToday += Number(s.total);
-                }
+                totalSalesToday += Number(s.total);
                 totalOrdersToday++;
-                if (s.items) {
-                    const parsedItems = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-                    parsedItems.forEach(item => {
-                        todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
-                    });
-                }
             }
         });
 
         let startingCash = Number(appSettings.startingcash || 0);
         let expectedCash = startingCash + totalSalesToday;
-        let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
-        document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
+        document.getElementById("dash-total-products").innerText = products.length;
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
     }
 
-    function openStartingCashModal() {
-        document.getElementById("modal-starting-cash-input").value = appSettings.startingcash || 0;
-        document.getElementById("starting-cash-modal").classList.add("active");
+    async function updateStartingCashPrompt() {
+        let val = prompt("Ilagay ang bagong Starting Cash (Puhunan):", appSettings.startingcash || 0);
+        if (val !== null && !isNaN(val)) {
+            appSettings.startingcash = parseFloat(val);
+            await apiFetch("settings/1", "PUT", appSettings);
+            renderDashboard();
+            alert("Na-update na ang Puhunan!");
+        }
     }
 
-    async function updateStartingCashSubmit(e) {
-        e.preventDefault();
-        const val = parseFloat(document.getElementById("modal-starting-cash-input").value) || 0;
-        appSettings.startingcash = val;
-        await apiFetch("settings/1", "PUT", appSettings);
-        closeModals();
-        loadSettings();
-        renderDashboard();
-        alert("Na-update na ang Starting Cash!");
-    }
-
-    async function resetAllSales() {
-        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng sales pabalik sa zero?")) {
-            await fetch("/api/sales/reset", { method: "DELETE" });
-            alert("Na-reset na ang sales pabalik sa zero!");
+    async function resetAllSalesData() {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales at Utang pabalik sa zero?")) {
+            await fetch("/api/resetsales", { method: "DELETE" });
+            alert("Na-reset na ang sales!");
             refreshAllViews();
         }
     }
@@ -857,15 +774,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         container.innerHTML = "";
         products.forEach((p, idx) => {
             if (!p.barcode) return;
-            container.innerHTML += '<div class="barcode-card"><div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + p.name + '</div><svg id="barcode-svg-' + idx + '"></svg><div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">' + formatCurrency(p.sellingprice) + '</div></div>';
+            container.innerHTML += '<div class="barcode-card"><div style="font-size: 0.85rem; font-weight: bold; margin-bottom: 5px;">' + p.name + '</div><svg id="barcode-svg-' + idx + '"></svg><div style="font-size: 0.8rem; font-weight: bold; margin-top: 3px;">' + formatCurrency(p.sellingprice) + '</div></div>';
         });
         document.getElementById("print-barcode-modal").classList.add("active");
         setTimeout(() => {
             products.forEach((p, idx) => {
                 if (p.barcode && document.getElementById("barcode-svg-" + idx)) {
-                    try {
-                        JsBarcode("#barcode-svg-" + idx, p.barcode, { format: "CODE128", width: 1.5, height: 40, displayValue: true, fontSize: 12 });
-                    } catch(err) {}
+                    try { JsBarcode("#barcode-svg-" + idx, p.barcode, { format: "CODE128", width: 1.5, height: 40, displayValue: true, fontSize: 12 }); } catch(err) {}
                 }
             });
         }, 200);
@@ -880,7 +795,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const costprice = parseFloat(document.getElementById("prod-cost").value);
         const sellingprice = parseFloat(document.getElementById("prod-price").value);
         const stock = parseInt(document.getElementById("prod-stock").value);
-
         const productData = { barcode, name, category, costprice, sellingprice, stock, minimumstock: 5, createdat: new Date().toISOString() };
 
         if (id) {
@@ -899,10 +813,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function renderProductsTable() {
         const products = await apiFetch("products");
         const tbody = document.getElementById("products-table-tbody");
-        if (!tbody) return;
         tbody.innerHTML = "";
         const search = document.getElementById("product-search-input")?.value.toLowerCase() || "";
-
         products.forEach(p => {
             if (search && !p.name.toLowerCase().includes(search) && !p.barcode?.includes(search)) return;
             let statusBadge = '<span class="badge badge-success">In Stock</span>';
@@ -941,8 +853,19 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(' + p.id + ', 1)">Add</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="promptAddToCart(' + p.id + ')">Add</button></td></tr>';
         });
+    }
+
+    async function promptAddToCart(productId) {
+        const products = await apiFetch("products");
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+        if (qtyInput === null) return;
+        let qty = parseInt(qtyInput);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -951,18 +874,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
 
+        playBeep();
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
             if (product.stock < existing.quantity + qty) { alert("Insufficient stock!"); return; }
             existing.quantity += qty;
         } else {
             cart.push({
-                productId: product.id,
-                name: product.name,
-                barcode: product.barcode,
-                sellingPrice: Number(product.sellingprice),
-                costPrice: Number(product.costprice),
-                quantity: qty
+                productId: product.id, name: product.name, barcode: product.barcode,
+                sellingPrice: Number(product.sellingprice), costPrice: Number(product.costprice), quantity: qty
             });
         }
         renderCart();
@@ -973,13 +893,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
-
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
             tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
-
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         document.getElementById("cart-subtotal").innerText = formatCurrency(subtotal);
         document.getElementById("cart-tax").innerText = formatCurrency(tax);
@@ -995,28 +913,20 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     function removeFromCart(index) { cart.splice(index, 1); renderCart(); }
 
-    async function handleScanCode(code) {
-        playBeep();
-        const products = await apiFetch("products");
-        const product = products.find(p => p.barcode === code);
-        if (product) {
-            let qtyStr = prompt("Ilang piraso para sa " + product.name + "?", "1");
-            if (qtyStr === null) return;
-            let qty = parseInt(qtyStr) || 1;
-            if (qty <= 0) qty = 1;
-            addToCart(product.id, qty);
-        } else {
-            alert("Product not found: " + code);
-        }
-    }
-
     async function handleManualBarcode() {
         const inputField = document.getElementById("manual-barcode-input");
         const code = inputField.value.trim();
         if (!code) return;
-        inputField.value = "";
-        inputField.focus();
-        await handleScanCode(code);
+        const products = await apiFetch("products");
+        const product = products.find(p => p.barcode === code);
+        if (product) {
+            inputField.value = "";
+            promptAddToCart(product.id);
+        } else {
+            alert("Product not found: " + code);
+            inputField.value = "";
+            inputField.focus();
+        }
     }
 
     function togglePaymentFields() {
@@ -1031,8 +941,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const grandTotal = subtotal + tax;
         const amountPaid = parseFloat(document.getElementById("pos-amount-paid").value) || 0;
         const change = amountPaid - grandTotal;
-        const changeDisplay = document.getElementById("pos-change-display");
-        if (changeDisplay) changeDisplay.innerText = formatCurrency(change >= 0 ? change : 0);
+        document.getElementById("pos-change-display").innerText = formatCurrency(change >= 0 ? change : 0);
     }
 
     async function completeCheckout() {
@@ -1051,7 +960,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             const customerId = document.getElementById("pos-utang-customer").value;
             const paidNow = parseFloat(document.getElementById("pos-utang-paid-now").value) || 0;
             if (!customerId) { alert("Select customer for Utang!"); return; }
-            if (paidNow > grandTotal) { alert("Paid now cannot exceed total!"); return; }
             amountPaid = paidNow;
         } else {
             amountPaid = grandTotal;
@@ -1059,17 +967,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
-            transactionnumber: transactionNumber,
-            items: JSON.stringify(cart),
+            transactionnumber: transactionNumber, items: JSON.stringify(cart),
             subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
-            paymentmethod: paymentMethod,
-            status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
-            cashier: currentUser ? currentUser.username : "Cashier",
-            date: new Date().toISOString()
+            paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
+            cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString()
         };
 
         const saleRes = await apiFetch("sales", "POST", saleRecord);
-
         if (paymentMethod === "Utang") {
             const customerId = parseInt(document.getElementById("pos-utang-customer").value);
             const customers = await apiFetch("customers");
@@ -1077,18 +981,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             const paidNow = parseFloat(document.getElementById("pos-utang-paid-now").value) || 0;
             const remaining = grandTotal - paidNow;
             const dueDate = document.getElementById("pos-utang-duedate").value || new Date().toISOString();
-
             await apiFetch("utang", "POST", {
-                customerid: customerId,
-                customername: cust ? cust.name : "Unknown",
-                transactionid: saleRes.id,
-                originalamount: grandTotal,
-                amountpaid: paidNow,
-                remainingbalance: remaining,
+                customerid: customerId, customername: cust ? cust.name : "Unknown", transactionid: saleRes.id,
+                originalamount: grandTotal, amountpaid: paidNow, remainingbalance: remaining,
                 status: remaining <= 0 ? "Paid" : (paidNow > 0 ? "Partially Paid" : "Unpaid"),
-                datecreated: new Date().toISOString(),
-                duedate: dueDate,
-                paymenthistory: JSON.stringify(paidNow > 0 ? [{ date: new Date().toISOString(), amount: paidNow, method: "Cash", receivedBy: currentUser ? currentUser.username : "Cashier" }] : [])
+                datecreated: new Date().toISOString(), duedate: dueDate, paymenthistory: JSON.stringify([])
             });
         }
 
@@ -1104,23 +1001,26 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 });
                 await apiFetch("inventory", "POST", {
                     productid: prod.id, productname: prod.name, type: "Sale", quantity: item.quantity,
-                    previousstock: prevStock, newstock: prod.stock, reason: "Sold via POS (" + transactionNumber + ")", date: new Date().toISOString(), user: currentUser ? currentUser.username : "Cashier"
+                    previousstock: prevStock, newstock: prod.stock, reason: "Sold via POS (" + transactionNumber + ")", date: new Date().toISOString(), user: currentUser ? currentUser.username : "Admin"
                 });
             }
         }
-
         alert("Transaction complete! Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
-        if (typeof renderDashboard === 'function') refreshAllViews();
+        refreshAllViews();
     }
 
     function startScanner() {
         const config = { fps: 10, qrbox: { width: 250, height: 150 } };
         html5QrCode = new Html5Qrcode("interactive");
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
-            stopScanner();
-            await handleScanCode(decodedText);
+            const products = await apiFetch("products");
+            const product = products.find(p => p.barcode === decodedText);
+            if (product) {
+                stopScanner();
+                promptAddToCart(product.id);
+            }
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
@@ -1142,7 +1042,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const productId = parseInt(document.getElementById("stockin-product").value);
         const qty = parseInt(document.getElementById("stockin-qty").value);
         const notes = document.getElementById("stockin-notes").value;
-
         const products = await apiFetch("products");
         const prod = products.find(p => p.id === productId);
         if (prod) {
@@ -1168,7 +1067,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const qty = parseInt(document.getElementById("stockout-qty").value);
         const reason = document.getElementById("stockout-reason").value;
         const notes = document.getElementById("stockout-notes").value;
-
         const products = await apiFetch("products");
         const prod = products.find(p => p.id === productId);
         if (prod) {
@@ -1207,7 +1105,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             const sale = sales.find(s => s.id === id);
             if (!sale) return;
             const itemsParsed = typeof sale.items === 'string' ? JSON.parse(sale.items) : sale.items;
-
             for (const item of itemsParsed) {
                 const products = await apiFetch("products");
                 const prod = products.find(p => p.id === item.productId);
@@ -1243,45 +1140,29 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const utangList = await apiFetch("utang");
         const u = utangList.find(x => x.id === id);
         if (!u) return;
-        document.getElementById("pay-utang-id").value = u.id;
-        document.getElementById("pay-cust-name").innerText = u.customername;
-        document.getElementById("pay-remaining-balance").innerText = formatCurrency(u.remainingbalance);
-        document.getElementById("pay-amount").value = "";
-        document.getElementById("utang-payment-modal").classList.add("active");
-    }
-
-    async function processUtangPayment(e) {
-        e.preventDefault();
-        const id = parseInt(document.getElementById("pay-utang-id").value);
-        const amount = parseFloat(document.getElementById("pay-amount").value);
-        const utangList = await apiFetch("utang");
-        const u = utangList.find(x => x.id === id);
-        if (!u || amount > u.remainingbalance) { alert("Invalid amount!"); return; }
+        let amountInput = prompt("Magkano ang ibabayad ni " + u.customername + "? (Natitira: " + formatCurrency(u.remainingbalance) + ")");
+        if (amountInput === null) return;
+        let amount = parseFloat(amountInput);
+        if (isNaN(amount) || amount <= 0 || amount > u.remainingbalance) { alert("Invalid amount!"); return; }
 
         u.amountpaid = Number(u.amountpaid) + amount;
         u.remainingbalance = Number(u.remainingbalance) - amount;
         u.status = u.remainingbalance <= 0 ? "Paid" : "Partially Paid";
-
-        let history = typeof u.paymenthistory === 'string' ? JSON.parse(u.paymenthistory || '[]') : (u.paymenthistory || []);
-        history.push({ date: new Date().toISOString(), amount, method: "Cash", receivedBy: currentUser ? currentUser.username : "Admin" });
-
         await apiFetch("utang/" + u.id, "PUT", {
             customerid: u.customerid, customername: u.customername, transactionid: u.transactionid,
             originalamount: u.originalamount, amountpaid: u.amountpaid, remainingbalance: u.remainingbalance,
-            status: u.status, datecreated: u.datecreated, duedate: u.duedate, paymenthistory: JSON.stringify(history)
+            status: u.status, datecreated: u.datecreated, duedate: u.duedate, paymenthistory: u.paymenthistory
         });
-        closeModals();
         refreshAllViews();
+        alert("Utang payment recorded successfully!");
     }
 
     function openAddCustomerModal() { document.getElementById("customer-form").reset(); document.getElementById("customer-modal").classList.add("active"); }
     async function saveCustomer(e) {
         e.preventDefault();
         await apiFetch("customers", "POST", {
-            name: document.getElementById("cust-name").value,
-            phone: document.getElementById("cust-phone").value,
-            email: document.getElementById("cust-email").value,
-            address: document.getElementById("cust-address").value,
+            name: document.getElementById("cust-name").value, phone: document.getElementById("cust-phone").value,
+            email: document.getElementById("cust-email").value, address: document.getElementById("cust-address").value,
             createdat: new Date().toISOString()
         });
         closeModals();
@@ -1302,11 +1183,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     async function saveExpense(e) {
         e.preventDefault();
         await apiFetch("expenses", "POST", {
-            name: document.getElementById("exp-name").value,
-            category: document.getElementById("exp-cat").value,
-            amount: parseFloat(document.getElementById("exp-amount").value),
-            notes: document.getElementById("exp-notes").value,
-            date: new Date().toISOString()
+            name: document.getElementById("exp-name").value, category: document.getElementById("exp-cat").value,
+            amount: parseFloat(document.getElementById("exp-amount").value), notes: document.getElementById("exp-notes").value, date: new Date().toISOString()
         });
         closeModals();
         refreshAllViews();
@@ -1326,9 +1204,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         appSettings.storename = document.getElementById("setting-store-name").value;
         appSettings.storeaddress = document.getElementById("setting-store-address").value;
         appSettings.storephone = document.getElementById("setting-store-phone").value;
-        appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
         appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
-
+        appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
         await apiFetch("settings/1", "PUT", appSettings);
         alert("Settings saved!");
         loadSettings();
@@ -1340,7 +1217,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const stockinSelect = document.getElementById("stockin-product");
         const stockoutSelect = document.getElementById("stockout-product");
         const utangCustSelect = document.getElementById("pos-utang-customer");
-
         if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
         if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += '<option value="' + p.id + '">' + p.name + ' (Stock: ' + p.stock + ')</option>'); }
         if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
@@ -1353,107 +1229,87 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 </html>
 `;
 
-// ================================
-// CASHIER TEMPLATE (CELLPHONE FRIENDLY - NO PASSWORD)
-// ================================
 const CASHIER_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cashier POS Portal - SmartStore</title>
+    <title>Cashier Portal - SmartStore</title>
     <style>${EMBEDDED_CSS}
-    body { height: 100vh; overflow: hidden; background: #f3f4f6; }
-    .cashier-topbar { height: 60px; background: var(--dark); color: white; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
-    .cashier-main { height: calc(100vh - 60px); padding: 0.5rem; }
-    @media(max-width: 900px) {
-        .pos-container { grid-template-columns: 1fr; height: calc(100vh - 70px); overflow-y: auto; gap: 0.5rem; }
-        .pos-scanner-box { height: 140px; }
-    }
+    body { height: 100vh; overflow-y: auto; background: #f3f4f6; }
+    .cashier-topbar { height: 50px; background: var(--dark); color: white; display: flex; justify-content: space-between; align-items: center; padding: 0 1rem; }
+    .pos-container { display: flex; flex-direction: column; gap: 1rem; padding: 10px; height: auto; }
+    .pos-left, .pos-right { width: 100%; height: auto; }
     </style>
     <script src="https://cdn.jsdelivr.net/npm/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body>
     <div class="cashier-topbar">
-        <h2 id="cashier-store-title" style="font-size: 1rem;">SmartStore - Cashier</h2>
+        <h2 id="cashier-store-title" style="font-size: 1rem;">Cashier Portal</h2>
         <div>
-            <a href="/" class="btn btn-secondary" style="padding: 0.3rem 0.6rem; font-size: 0.75rem; width: auto; display:inline-block;">Admin Login</a>
+            <a href="/" class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; width: auto; display:inline-block;">Admin Login</a>
         </div>
     </div>
 
-    <div class="cashier-main">
-        <div class="pos-container" style="height: 100%;">
-            <div class="pos-left">
-                <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
-                    <h3 style="font-size:0.95rem;">Scanner & Products</h3>
-                    <div>
-                        <button class="btn btn-success" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="startScanner()">Start Cam</button>
-                        <button class="btn btn-danger" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
-                    </div>
-                </div>
-                <div class="pos-scanner-box">
-                    <div id="interactive" class="viewport"></div>
-                    <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview</div>
-                </div>
-                <div style="display:flex; gap:10px; margin-bottom:10px;">
-                    <input type="text" id="manual-barcode-input" class="form-control" placeholder="Scan barcode or type & enter..." autofocus>
-                    <button class="btn" style="width:auto;" onclick="handleManualBarcode()">Add</button>
-                </div>
-                <div style="flex-grow:1; overflow-y:auto; max-height: 200px;">
-                    <table id="pos-product-search-table">
-                        <thead><tr><th>Product</th><th>Price</th><th>Stock</th><th>Action</th></tr></thead>
-                        <tbody id="pos-product-search-tbody"></tbody>
-                    </table>
+    <div class="pos-container">
+        <div class="pos-left">
+            <div style="display:flex; justify-content:space-between; margin-bottom: 5px;">
+                <h3 style="font-size: 1rem;">Scanner</h3>
+                <div>
+                    <button class="btn btn-success" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="startScanner()">Start Cam</button>
+                    <button class="btn btn-danger" style="padding: 0.2rem 0.4rem; font-size:0.75rem; width:auto;" onclick="stopScanner()">Stop Cam</button>
                 </div>
             </div>
-            <div class="pos-right">
-                <h3 style="font-size:0.95rem;">Current Cart</h3>
-                <div class="cart-items-list" style="max-height: 180px;">
-                    <table>
-                        <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Sub</th><th></th></tr></thead>
-                        <tbody id="cart-items-tbody"></tbody>
-                    </table>
+            <div class="pos-scanner-box" style="height: 130px;">
+                <div id="interactive" class="viewport"></div>
+                <div id="scanner-placeholder" style="color:#aaa; position:absolute;">Camera Preview</div>
+            </div>
+            <div style="display:flex; gap:10px; margin-bottom:10px;">
+                <input type="text" id="manual-barcode-input" class="form-control" placeholder="Scan barcode or type & enter..." autofocus>
+                <button class="btn" style="width:auto;" onclick="handleManualBarcode()">Add</button>
+            </div>
+        </div>
+
+        <div class="pos-right">
+            <h3 style="font-size: 1rem;">Current Cart</h3>
+            <div class="cart-items-list" style="max-height: 200px;">
+                <table>
+                    <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Sub</th><th></th></tr></thead>
+                    <tbody id="cart-items-tbody"></tbody>
+                </table>
+            </div>
+            <div class="cart-summary-box">
+                <div class="summary-row"><span>Subtotal:</span><span id="cart-subtotal">₱0.00</span></div>
+                <div class="summary-row"><span>Tax:</span><span id="cart-tax">₱0.00</span></div>
+                <div class="summary-row total"><span>Total:</span><span id="cart-grand-total">₱0.00</span></div>
+                <div class="form-group" style="margin-top:10px;">
+                    <label>Payment Method</label>
+                    <select id="pos-payment-method" class="form-control" onchange="togglePaymentFields()">
+                        <option value="Cash">Cash</option>
+                        <option value="GCash">GCash</option>
+                        <option value="Maya">Maya</option>
+                        <option value="Card">Card</option>
+                        <option value="Utang">Utang / Credit</option>
+                    </select>
                 </div>
-                <div class="cart-summary-box">
-                    <div class="summary-row"><span>Subtotal:</span><span id="cart-subtotal">₱0.00</span></div>
-                    <div class="summary-row"><span>Tax:</span><span id="cart-tax">₱0.00</span></div>
-                    <div class="summary-row total"><span>Total:</span><span id="cart-grand-total">₱0.00</span></div>
-                    <div class="form-group" style="margin-top:5px; margin-bottom:5px;">
-                        <label style="font-size:0.8rem;">Payment Method</label>
-                        <select id="pos-payment-method" class="form-control" style="padding:0.4rem;" onchange="togglePaymentFields()">
-                            <option value="Cash">Cash</option>
-                            <option value="GCash">GCash</option>
-                            <option value="Maya">Maya</option>
-                            <option value="Card">Card</option>
-                            <option value="Utang">Utang / Credit</option>
-                        </select>
-                    </div>
-                    <div id="cash-payment-fields">
-                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Amount Paid (Pera ng Customer)</label><input type="number" id="pos-amount-paid" class="form-control" style="padding:0.4rem;" value="0" oninput="calculateChange()"></div>
-                        <div class="summary-row" style="font-size:0.9rem;"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
-                    </div>
-                    <div id="utang-payment-fields" style="display:none;">
-                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Customer</label><select id="pos-utang-customer" class="form-control" style="padding:0.4rem;"></select></div>
-                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Paid Now</label><input type="number" id="pos-utang-paid-now" class="form-control" style="padding:0.4rem;" value="0"></div>
-                        <div class="form-group" style="margin-bottom:5px;"><label style="font-size:0.8rem;">Due Date</label><input type="date" id="pos-utang-duedate" class="form-control" style="padding:0.4rem;"></div>
-                    </div>
-                    <button class="btn btn-success" style="margin-top:5px; padding:0.6rem;" onclick="completeCheckout()">Complete Payment</button>
+                <div id="cash-payment-fields">
+                    <div class="form-group"><label>Amount Paid (Ibinayad)</label><input type="number" id="pos-amount-paid" class="form-control" value="0" oninput="calculateChange()"></div>
+                    <div class="summary-row"><span>Change (Sukli):</span><span id="pos-change-display" style="color:var(--success);">₱0.00</span></div>
                 </div>
+                <div id="utang-payment-fields" style="display:none;">
+                    <div class="form-group"><label>Customer</label><select id="pos-utang-customer" class="form-control"></select></div>
+                    <div class="form-group"><label>Paid Now</label><input type="number" id="pos-utang-paid-now" class="form-control" value="0"></div>
+                    <div class="form-group"><label>Due Date</label><input type="date" id="pos-utang-duedate" class="form-control"></div>
+                </div>
+                <button class="btn btn-success" style="margin-top:10px;" onclick="completeCheckout()">Complete Payment</button>
             </div>
         </div>
     </div>
 
     <script>
     let cart = [];
-    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
+    let appSettings = { storeName: "SmartStore POS", taxRate: 0 };
     let html5QrCode = null;
-
-    window.addEventListener("DOMContentLoaded", async () => {
-        await loadSettings();
-        await renderPOSProducts();
-        await populateDropdowns();
-        setupManualBarcodeListener();
-    });
 
     function playBeep() {
         try {
@@ -1461,15 +1317,20 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             const osc = ctx.createOscillator();
             const gain = ctx.createGain();
             osc.type = "sine";
-            osc.frequency.value = 880;
-            gain.gain.setValueAtTime(0.15, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.15);
+            osc.frequency.value = 800;
+            gain.gain.setValueAtTime(0.1, ctx.currentTime);
             osc.connect(gain);
             gain.connect(ctx.destination);
             osc.start();
             osc.stop(ctx.currentTime + 0.15);
         } catch(e) {}
     }
+
+    window.addEventListener("DOMContentLoaded", async () => {
+        await loadSettings();
+        await populateDropdowns();
+        setupManualBarcodeListener();
+    });
 
     async function apiFetch(endpoint, method = "GET", data = null) {
         const options = { method, headers: { "Content-Type": "application/json" } };
@@ -1480,9 +1341,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
     async function loadSettings() {
         const settingsList = await apiFetch("settings");
-        if (settingsList.length > 0) {
-            appSettings = settingsList[0];
-        }
+        if (settingsList.length > 0) appSettings = settingsList[0];
         document.getElementById("cashier-store-title").innerText = appSettings.storename + " - Cashier";
     }
 
@@ -1499,14 +1358,15 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
-    async function renderPOSProducts() {
+    async function promptAddToCart(productId) {
         const products = await apiFetch("products");
-        const tbody = document.getElementById("pos-product-search-tbody");
-        if (!tbody) return;
-        tbody.innerHTML = "";
-        products.forEach(p => {
-            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.2rem 0.4rem; width:auto;" onclick="addToCart(' + p.id + ', 1)">Add</button></td></tr>';
-        });
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+        if (qtyInput === null) return;
+        let qty = parseInt(qtyInput);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -1515,18 +1375,15 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
 
+        playBeep();
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
             if (product.stock < existing.quantity + qty) { alert("Insufficient stock!"); return; }
             existing.quantity += qty;
         } else {
             cart.push({
-                productId: product.id,
-                name: product.name,
-                barcode: product.barcode,
-                sellingPrice: Number(product.sellingprice),
-                costPrice: Number(product.costprice),
-                quantity: qty
+                productId: product.id, name: product.name, barcode: product.barcode,
+                sellingPrice: Number(product.sellingprice), costPrice: Number(product.costprice), quantity: qty
             });
         }
         renderCart();
@@ -1537,13 +1394,11 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
-
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
             tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
-
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         document.getElementById("cart-subtotal").innerText = formatCurrency(subtotal);
         document.getElementById("cart-tax").innerText = formatCurrency(tax);
@@ -1559,28 +1414,20 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
     function removeFromCart(index) { cart.splice(index, 1); renderCart(); }
 
-    async function handleScanCode(code) {
-        playBeep();
-        const products = await apiFetch("products");
-        const product = products.find(p => p.barcode === code);
-        if (product) {
-            let qtyStr = prompt("Ilang piraso para sa " + product.name + "?", "1");
-            if (qtyStr === null) return;
-            let qty = parseInt(qtyStr) || 1;
-            if (qty <= 0) qty = 1;
-            addToCart(product.id, qty);
-        } else {
-            alert("Product not found: " + code);
-        }
-    }
-
     async function handleManualBarcode() {
         const inputField = document.getElementById("manual-barcode-input");
         const code = inputField.value.trim();
         if (!code) return;
-        inputField.value = "";
-        inputField.focus();
-        await handleScanCode(code);
+        const products = await apiFetch("products");
+        const product = products.find(p => p.barcode === code);
+        if (product) {
+            inputField.value = "";
+            promptAddToCart(product.id);
+        } else {
+            alert("Product not found: " + code);
+            inputField.value = "";
+            inputField.focus();
+        }
     }
 
     function togglePaymentFields() {
@@ -1614,7 +1461,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             const customerId = document.getElementById("pos-utang-customer").value;
             const paidNow = parseFloat(document.getElementById("pos-utang-paid-now").value) || 0;
             if (!customerId) { alert("Select customer for Utang!"); return; }
-            if (paidNow > grandTotal) { alert("Paid now cannot exceed total!"); return; }
             amountPaid = paidNow;
         } else {
             amountPaid = grandTotal;
@@ -1622,17 +1468,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
-            transactionnumber: transactionNumber,
-            items: JSON.stringify(cart),
+            transactionnumber: transactionNumber, items: JSON.stringify(cart),
             subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
-            paymentmethod: paymentMethod,
-            status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
-            cashier: "Cashier Terminal",
-            date: new Date().toISOString()
+            paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
+            cashier: "Cashier Mobile", date: new Date().toISOString()
         };
 
         const saleRes = await apiFetch("sales", "POST", saleRecord);
-
         if (paymentMethod === "Utang") {
             const customerId = parseInt(document.getElementById("pos-utang-customer").value);
             const customers = await apiFetch("customers");
@@ -1640,18 +1482,11 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             const paidNow = parseFloat(document.getElementById("pos-utang-paid-now").value) || 0;
             const remaining = grandTotal - paidNow;
             const dueDate = document.getElementById("pos-utang-duedate").value || new Date().toISOString();
-
             await apiFetch("utang", "POST", {
-                customerid: customerId,
-                customername: cust ? cust.name : "Unknown",
-                transactionid: saleRes.id,
-                originalamount: grandTotal,
-                amountpaid: paidNow,
-                remainingbalance: remaining,
+                customerid: customerId, customername: cust ? cust.name : "Unknown", transactionid: saleRes.id,
+                originalamount: grandTotal, amountpaid: paidNow, remainingbalance: remaining,
                 status: remaining <= 0 ? "Paid" : (paidNow > 0 ? "Partially Paid" : "Unpaid"),
-                datecreated: new Date().toISOString(),
-                duedate: dueDate,
-                paymenthistory: JSON.stringify(paidNow > 0 ? [{ date: new Date().toISOString(), amount: paidNow, method: "Cash", receivedBy: "Cashier Terminal" }] : [])
+                datecreated: new Date().toISOString(), duedate: dueDate, paymenthistory: JSON.stringify([])
             });
         }
 
@@ -1667,25 +1502,26 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                 });
                 await apiFetch("inventory", "POST", {
                     productid: prod.id, productname: prod.name, type: "Sale", quantity: item.quantity,
-                    previousstock: prevStock, newstock: prod.stock, reason: "Sold via POS (" + transactionNumber + ")", date: new Date().toISOString(), user: "Cashier Terminal"
+                    previousstock: prevStock, newstock: prod.stock, reason: "Sold via POS (" + transactionNumber + ")", date: new Date().toISOString(), user: "Cashier Mobile"
                 });
             }
         }
-
         alert("Transaction complete! Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
-        renderPOSProducts();
-        populateDropdowns();
         document.getElementById("manual-barcode-input").focus();
     }
 
     function startScanner() {
-        const config = { fps: 10, qrbox: { width: 250, height: 150 } };
+        const config = { fps: 10, qrbox: { width: 250, height: 120 } };
         html5QrCode = new Html5Qrcode("interactive");
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
-            stopScanner();
-            await handleScanCode(decodedText);
+            const products = await apiFetch("products");
+            const product = products.find(p => p.barcode === decodedText);
+            if (product) {
+                stopScanner();
+                promptAddToCart(product.id);
+            }
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
@@ -1706,7 +1542,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
 app.get("/", (req, res) => {
     res.setHeader("Content-Type", "text/html");
-    res.send(HTML_TEMPLATE);
+    res.send(ADMIN_TEMPLATE);
 });
 
 app.get("/cashier", (req, res) => {
@@ -1715,5 +1551,5 @@ app.get("/cashier", (req, res) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-    console.log(`SmartStore POS running on port ${PORT}`);
+    console.log("SmartStore POS running on port " + PORT);
 });
