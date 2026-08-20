@@ -813,7 +813,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const productData = { barcode, name, category, costprice, sellingprice, stock, minimumstock: 5, createdat: new Date().toISOString() };
 
         if (id) {
-            await apiFetch(\`products/\${id}\`, "PUT", productData);
+            await apiFetch(`products/${id}`, "PUT", productData);
         } else {
             const res = await apiFetch("products", "POST", productData);
             await apiFetch("inventory", "POST", {
@@ -837,22 +837,22 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (p.stock <= 0) statusBadge = '<span class="badge badge-danger">Out of Stock</span>';
             else if (p.stock <= 5) statusBadge = '<span class="badge badge-warning">Low Stock</span>';
 
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${p.barcode || '-'}</td>
-                    <td>\${p.name}</td>
-                    <td>\${p.category || '-'}</td>
-                    <td>\${formatCurrency(p.costprice)}</td>
-                    <td>\${formatCurrency(p.sellingprice)}</td>
-                    <td>\${p.stock}</td>
-                    <td>\${statusBadge}</td>
+                    <td>${p.barcode || '-'}</td>
+                    <td>${p.name}</td>
+                    <td>${p.category || '-'}</td>
+                    <td>${formatCurrency(p.costprice)}</td>
+                    <td>${formatCurrency(p.sellingprice)}</td>
+                    <td>${p.stock}</td>
+                    <td>${statusBadge}</td>
                     <td>
-                        <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(\${p.id})">Edit</button>
-                        <button class="btn btn-warning" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="openPrintBarcodeModal('\${p.barcode || ''}', '\${p.name.replace(/'/g, "\\\\'")}', \${p.sellingprice})">Print Barcode</button>
-                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(\${p.id})">Delete</button>
+                        <button class="btn" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="editProduct(${p.id})">Edit</button>
+                        <button class="btn btn-warning" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="openPrintBarcodeModal('${p.barcode || ''}', '${p.name.replace(/'/g, "\\'")}', ${p.sellingprice})">Print Barcode</button>
+                        <button class="btn btn-danger" style="padding:0.25rem 0.5rem; font-size:0.8rem; width:auto;" onclick="deleteProduct(${p.id})">Delete</button>
                     </td>
                 </tr>
-            \`;
+            `;
         });
     }
 
@@ -885,7 +885,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
     async function deleteProduct(id) {
         if (confirm("Delete this product?")) {
-            await apiFetch(\`products/\${id}\`, "DELETE");
+            await apiFetch(`products/${id}`, "DELETE");
             refreshAllViews();
         }
     }
@@ -896,14 +896,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const tbody = document.getElementById("pos-product-search-tbody");
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${p.name}</td>
-                    <td>\${formatCurrency(p.sellingprice)}</td>
-                    <td>\${p.stock}</td>
-                    <td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(\${p.id})">Add</button></td>
+                    <td>${p.name}</td>
+                    <td>${formatCurrency(p.sellingprice)}</td>
+                    <td>${p.stock}</td>
+                    <td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(${p.id})">Add</button></td>
                 </tr>
-            \`;
+            `;
         });
     }
 
@@ -938,19 +938,19 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
             subtotal += itemSub;
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${item.name}</td>
+                    <td>${item.name}</td>
                     <td>
-                        <button onclick="updateCartQty(\${index}, -1)">-</button>
-                        \${item.quantity}
-                        <button onclick="updateCartQty(\${index}, 1)">+</button>
+                        <button onclick="updateCartQty(${index}, -1)">-</button>
+                        ${item.quantity}
+                        <button onclick="updateCartQty(${index}, 1)">+</button>
                     </td>
-                    <td>\${formatCurrency(item.sellingPrice)}</td>
-                    <td>\${formatCurrency(itemSub)}</td>
-                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(\${index})">X</button></td>
+                    <td>${formatCurrency(item.sellingPrice)}</td>
+                    <td>${formatCurrency(itemSub)}</td>
+                    <td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(${index})">X</button></td>
                 </tr>
-            \`;
+            `;
         });
 
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
@@ -1059,7 +1059,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (prod) {
                 const prevStock = prod.stock;
                 prod.stock -= item.quantity;
-                await apiFetch(\`products/\${prod.id}\`, "PUT", {
+                await apiFetch(`products/${prod.id}`, "PUT", {
                     barcode: prod.barcode, name: prod.name, category: prod.category,
                     costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
                 });
@@ -1096,18 +1096,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const tbody = document.getElementById("inventory-table-tbody");
         tbody.innerHTML = "";
         logs.forEach(l => {
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${new Date(l.date).toLocaleString()}</td>
-                    <td>\${l.productname}</td>
-                    <td><span class="badge \${l.type === 'Stock In' ? 'badge-success' : 'badge-danger'}">\${l.type}</span></td>
-                    <td>\${l.quantity}</td>
-                    <td>\${l.previousstock}</td>
-                    <td>\${l.newstock}</td>
-                    <td>\${l.reason || '-'}</td>
-                    <td>\${l.user}</td>
+                    <td>${new Date(l.date).toLocaleString()}</td>
+                    <td>${l.productname}</td>
+                    <td><span class="badge ${l.type === 'Stock In' ? 'badge-success' : 'badge-danger'}">${l.type}</span></td>
+                    <td>${l.quantity}</td>
+                    <td>${l.previousstock}</td>
+                    <td>${l.newstock}</td>
+                    <td>${l.reason || '-'}</td>
+                    <td>${l.user}</td>
                 </tr>
-            \`;
+            `;
         });
     }
 
@@ -1122,7 +1122,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (prod) {
             const prevStock = prod.stock;
             prod.stock += qty;
-            await apiFetch(\`products/\${prod.id}\`, "PUT", {
+            await apiFetch(`products/${prod.id}`, "PUT", {
                 barcode: prod.barcode, name: prod.name, category: prod.category,
                 costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
             });
@@ -1149,7 +1149,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             if (prod.stock < qty) { alert("Exceeds current stock!"); return; }
             const prevStock = prod.stock;
             prod.stock -= qty;
-            await apiFetch(\`products/\${prod.id}\`, "PUT", {
+            await apiFetch(`products/${prod.id}`, "PUT", {
                 barcode: prod.barcode, name: prod.name, category: prod.category,
                 costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
             });
@@ -1171,18 +1171,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${s.transactionnumber}</td>
-                    <td>\${new Date(s.date).toLocaleString()}</td>
-                    <td>\${totalQty}</td>
-                    <td>\${formatCurrency(s.total)}</td>
-                    <td>\${formatCurrency(s.amountpaid)}</td>
-                    <td>\${s.paymentmethod}</td>
-                    <td><span class="badge \${s.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${s.status}</span></td>
-                    <td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(\${s.id})">Void</button></td>
+                    <td>${s.transactionnumber}</td>
+                    <td>${new Date(s.date).toLocaleString()}</td>
+                    <td>${totalQty}</td>
+                    <td>${formatCurrency(s.total)}</td>
+                    <td>${formatCurrency(s.amountpaid)}</td>
+                    <td>${s.paymentmethod}</td>
+                    <td><span class="badge ${s.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${s.status}</span></td>
+                    <td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(${s.id})">Void</button></td>
                 </tr>
-            \`;
+            `;
         });
     }
 
@@ -1199,7 +1199,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 if (prod) {
                     const prevStock = prod.stock;
                     prod.stock += item.quantity;
-                    await apiFetch(\`products/\${prod.id}\`, "PUT", {
+                    await apiFetch(`products/${prod.id}`, "PUT", {
                         barcode: prod.barcode, name: prod.name, category: prod.category,
                         costprice: prod.costprice, sellingprice: prod.sellingprice, stock: prod.stock, minimumstock: prod.minimumstock
                     });
@@ -1209,7 +1209,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     });
                 }
             }
-            await apiFetch(\`sales/\${id}\`, "DELETE");
+            await apiFetch(`sales/${id}`, "DELETE");
             refreshAllViews();
         }
     }
@@ -1219,17 +1219,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const tbody = document.getElementById("utang-table-tbody");
         tbody.innerHTML = "";
         utangList.forEach(u => {
-            tbody.innerHTML += \`
+            tbody.innerHTML += `
                 <tr>
-                    <td>\${u.customername}</td>
-                    <td>\${formatCurrency(u.originalamount)}</td>
-                    <td>\${formatCurrency(u.amountpaid)}</td>
-                    <td>\${formatCurrency(u.remainingbalance)}</td>
-                    <td>\${u.duedate ? new Date(u.duedate).toLocaleDateString() : '-'}</td>
-                    <td><span class="badge \${u.status === 'Paid' ? 'badge-success' : 'badge-warning'}">\${u.status}</span></td>
-                    <td>\${u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : ''}</td>
+                    <td>${u.customername}</td>
+                    <td>${formatCurrency(u.originalamount)}</td>
+                    <td>${formatCurrency(u.amountpaid)}</td>
+                    <td>${formatCurrency(u.remainingbalance)}</td>
+                    <td>${u.duedate ? new Date(u.duedate).toLocaleDateString() : '-'}</td>
+                    <td><span class="badge ${u.status === 'Paid' ? 'badge-success' : 'badge-warning'}">${u.status}</span></td>
+                    <td>${u.remainingbalance > 0 ? '<button class="btn btn-success" style="padding:0.25rem 0.5rem; width:auto;" onclick="openUtangPaymentModal(' + u.id + ')">Pay</button>' : ''}</td>
                 </tr>
-            \`;
+            `;
         });
     }
 
@@ -1259,7 +1259,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         let history = typeof u.paymenthistory === 'string' ? JSON.parse(u.paymenthistory || '[]') : (u.paymenthistory || []);
         history.push({ date: new Date().toISOString(), amount, method: "Cash", receivedBy: currentUser.username });
 
-        await apiFetch(\`utang/\${u.id}\`, "PUT", {
+        await apiFetch(`utang/${u.id}`, "PUT", {
             customerid: u.customerid, customername: u.customername, transactionid: u.transactionid,
             originalamount: u.originalamount, amountpaid: u.amountpaid, remainingbalance: u.remainingbalance,
             status: u.status, datecreated: u.datecreated, duedate: u.duedate, paymenthistory: JSON.stringify(history)
@@ -1286,10 +1286,10 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const tbody = document.getElementById("customers-table-tbody");
         tbody.innerHTML = "";
         customers.forEach(c => {
-            tbody.innerHTML += \`<tr><td>\${c.name}</td><td>\${c.phone || '-'}</td><td>\${c.email || '-'}</td><td>\${c.address || '-'}</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(\${c.id})">Delete</button></td></tr>\`;
+            tbody.innerHTML += `<tr><td>${c.name}</td><td>${c.phone || '-'}</td><td>${c.email || '-'}</td><td>${c.address || '-'}</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteCustomer(${c.id})">Delete</button></td></tr>`;
         });
     }
-    async function deleteCustomer(id) { if (confirm("Delete customer?")) { await apiFetch(\`customers/\${id}\`, "DELETE"); refreshAllViews(); } }
+    async function deleteCustomer(id) { if (confirm("Delete customer?")) { await apiFetch(`customers/${id}`, "DELETE"); refreshAllViews(); } }
 
     function openAddExpenseModal() { document.getElementById("expense-form").reset(); document.getElementById("expense-modal").classList.add("active"); }
     async function saveExpense(e) {
@@ -1309,7 +1309,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const tbody = document.getElementById("expenses-table-tbody");
         tbody.innerHTML = "";
         expenses.forEach(e => {
-            tbody.innerHTML += \`<tr><td>\${e.name}</td><td>\${e.category}</td><td>\${formatCurrency(e.amount)}</td><td>\${new Date(e.date).toLocaleDateString()}</td><td>\${e.notes || '-'}</td></tr>\`;
+            tbody.innerHTML += `<tr><td>${e.name}</td><td>${e.category}</td><td>${formatCurrency(e.amount)}</td><td>${new Date(e.date).toLocaleDateString()}</td><td>${e.notes || '-'}</td></tr>`;
         });
     }
 
@@ -1332,13 +1332,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const stockoutSelect = document.getElementById("stockout-product");
         const utangCustSelect = document.getElementById("pos-utang-customer");
 
-        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
-        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += \`<option value="\${p.id}">\${p.name} (Stock: \${p.stock})</option>\`); }
-        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += \`<option value="\${c.id}">\${c.name}</option>\`); }
+        if (stockinSelect) { stockinSelect.innerHTML = ""; products.forEach(p => stockinSelect.innerHTML += `<option value="${p.id}">${p.name} (Stock: ${p.stock})</option>`); }
+        if (stockoutSelect) { stockoutSelect.innerHTML = ""; products.forEach(p => stockoutSelect.innerHTML += `<option value="${p.id}">${p.name} (Stock: ${p.stock})</option>`); }
+        if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += `<option value="${c.id}">${c.name}</option>`); }
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
     </script>
 </body>
 </html>
@@ -1422,7 +1422,7 @@ app.get("/", (req, res) => {
 
 app.get("/scanner", (req, res) => {
     res.setHeader("Content-Type", "text/html");
-    res.send(SCANER_PORTAL_TEMPLATE);
+    res.send(SCANNER_PORTAL_TEMPLATE);
 });
 
 app.listen(PORT, "0.0.0.0", () => {
