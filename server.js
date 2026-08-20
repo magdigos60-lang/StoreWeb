@@ -91,16 +91,20 @@ async function initTables() {
                 storename TEXT,
                 storeaddress TEXT,
                 storephone TEXT,
-                taxrate NUMERIC
+                taxrate NUMERIC,
+                startingcash NUMERIC DEFAULT 0
             );
         `);
         
         const settingsCheck = await pool.query("SELECT * FROM settings WHERE id = 1");
         if (settingsCheck.rows.length === 0) {
             await pool.query(`
-                INSERT INTO settings (id, storename, storeaddress, storephone, taxrate) 
-                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00)
+                INSERT INTO settings (id, storename, storeaddress, storephone, taxrate, startingcash) 
+                VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
+        } else {
+            // Siguraduhing may startingcash column kung lumang database na
+            await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0;`).catch(() => {});
         }
         
         console.log("Database tables verified/created successfully.");
@@ -335,6 +339,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                         <div class="metric-card warning"><h3>Low Stock Products</h3><div class="value" id="dash-low-stock">0</div></div>
                         <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
+                        <div class="metric-card success" style="border-left-color: #3b82f6;"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
+                        <div class="metric-card success" style="border-left-color: #10b981;"><h3>Total Expected Money in Drawer</h3><div class="value" id="dash-total-drawer-money">₱0.00</div></div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
@@ -529,6 +535,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash / Puhunan sa Kaha (Initial Money)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" value="0"></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
@@ -622,7 +629,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
     <script>
     let currentUser = null;
     let cart = [];
-    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
+    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0 };
     let html5QrCode = null;
 
     window.addEventListener("DOMContentLoaded", async () => {
@@ -650,6 +657,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("setting-store-address").value = appSettings.storeaddress || "";
         document.getElementById("setting-store-phone").value = appSettings.storephone || "";
         document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
+        document.getElementById("setting-starting-cash").value = appSettings.startingcash || 0;
     }
 
     function setupAuth() {
@@ -745,11 +753,14 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
 
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+        let totalSalesToday = 0, totalCashSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
+                if (s.paymentmethod === "Cash") {
+                    totalCashSalesToday += Number(s.total);
+                }
                 totalOrdersToday++;
                 if (s.items) {
                     s.items.forEach(item => {
@@ -761,6 +772,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 
         let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
+        let startingCash = Number(appSettings.startingcash || 0);
+        let totalDrawerMoney = startingCash + totalCashSalesToday;
 
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
@@ -768,6 +781,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("dash-low-stock").innerText = lowStockCount;
         document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
+        document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
+        document.getElementById("dash-total-drawer-money").innerText = formatCurrency(totalDrawerMoney);
     }
 
     function generateAutoBarcode() {
@@ -939,9 +954,9 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 <tr>
                     <td>\${item.name}</td>
                     <td>
-                        <button onclick="updateCartQty(\index\, -1)">-</button>
+                        <button onclick="updateCartQty(\${index}, -1)">-</button>
                         \${item.quantity}
-                        <button onclick="updateCartQty(\index\, 1)">+</button>
+                        <button onclick="updateCartQty(\${index}, 1)">+</button>
                     </td>
                     <td>\${formatCurrency(item.sellingPrice)}</td>
                     <td>\${formatCurrency(itemSub)}</td>
@@ -1323,6 +1338,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         appSettings.storeaddress = document.getElementById("setting-store-address").value;
         appSettings.storephone = document.getElementById("setting-store-phone").value;
         appSettings.taxrate = parseFloat(document.getElementById("setting-tax-rate").value) || 0;
+        appSettings.startingcash = parseFloat(document.getElementById("setting-starting-cash").value) || 0;
 
         await apiFetch("settings/1", "PUT", appSettings);
         alert("Settings saved!");
@@ -1437,7 +1453,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
 
     <script>
     let cart = [];
-    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
+    let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0 };
     let currentUser = { username: "Cashier Terminal", role: "CASHIER" };
     let html5QrCode = null;
 
