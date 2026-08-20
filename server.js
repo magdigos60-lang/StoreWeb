@@ -103,10 +103,8 @@ async function initTables() {
                 VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
         } else {
-            // Check if startingcash column exists if table was already created before
-            try {
-                await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0`);
-            } catch(e) {}
+            // Siguraduhing may startingcash column kung lumang database ang na-load
+            await pool.query(`ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0;`).catch(() => {});
         }
         
         console.log("Database tables verified/created successfully.");
@@ -343,27 +341,28 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
                     </div>
 
-                    <!-- CASH BREAKDOWN SECTION -->
-                    <div class="card" style="margin-bottom: 2rem; border-left: 5px solid var(--success);">
+                    <!-- Cash Breakdown Card -->
+                    <div class="card" style="margin-bottom: 2rem; border-left: 4px solid var(--success);">
                         <div class="card-header">
-                            <h3>Cash Drawer Breakdown (Kaha) Today</h3>
+                            <h3>Cash Drawer / Kaha Breakdown (Today)</h3>
                         </div>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
-                            <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border);">
-                                <label style="font-size: 0.85rem; color: var(--gray); font-weight: bold;">Starting Cash (Puhunan)</label>
-                                <div style="display: flex; gap: 5px; margin-top: 5px;">
-                                    <input type="number" step="0.01" id="dash-starting-cash-input" class="form-control" style="padding: 0.4rem;" value="0">
-                                    <button class="btn btn-success" style="width: auto; padding: 0.4rem 0.8rem; font-size: 0.85rem;" onclick="updateStartingCashFromDash()">I-save</button>
-                                </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 15px;">
+                            <div style="background: #f9fafb; padding: 15px; border-radius: 6px; border: 1px solid var(--border);">
+                                <span style="font-size: 0.85rem; color: var(--gray); display: block; margin-bottom: 5px;">Starting Cash (Puhunan)</span>
+                                <span id="dash-starting-cash-display" style="font-size: 1.25rem; font-weight: bold;">₱0.00</span>
                             </div>
-                            <div style="background: #f9fafb; padding: 1rem; border-radius: 6px; border: 1px solid var(--border);">
-                                <label style="font-size: 0.85rem; color: var(--gray); font-weight: bold;">Total Cash Sales (Benta)</label>
-                                <div class="value" id="dash-cash-sales" style="font-size: 1.25rem; margin-top: 8px; color: var(--primary);">₱0.00</div>
+                            <div style="background: #f9fafb; padding: 15px; border-radius: 6px; border: 1px solid var(--border);">
+                                <span style="font-size: 0.85rem; color: var(--gray); display: block; margin-bottom: 5px;">Total Cash Sales (Benta)</span>
+                                <span id="dash-cash-sales-display" style="font-size: 1.25rem; font-weight: bold; color: var(--success);">₱0.00</span>
                             </div>
-                            <div style="background: #e0f2fe; padding: 1rem; border-radius: 6px; border: 1px solid #bae6fd;">
-                                <label style="font-size: 0.85rem; color: #0369a1; font-weight: bold;">Total Expected Cash sa Kaha</label>
-                                <div class="value" id="dash-expected-cash" style="font-size: 1.25rem; margin-top: 8px; color: #0369a1;">₱0.00</div>
+                            <div style="background: #f0fdf4; padding: 15px; border-radius: 6px; border: 1px solid var(--success);">
+                                <span style="font-size: 0.85rem; color: #065f46; display: block; margin-bottom: 5px; font-weight: bold;">Total Expected Cash sa Kaha</span>
+                                <span id="dash-expected-cash-display" style="font-size: 1.5rem; font-weight: bold; color: #065f46;">₱0.00</span>
                             </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; align-items: center; background: #fff; padding: 10px; border-radius: 6px; border: 1px solid var(--border);">
+                            <input type="number" step="0.01" id="quick-starting-cash-input" class="form-control" placeholder="Ilagay ang bagong puhunan..." style="max-width: 250px;">
+                            <button class="btn btn-success" style="width: auto; padding: 0.6rem 1rem;" onclick="quickUpdateStartingCash()">I-update ang Puhunan</button>
                         </div>
                     </div>
 
@@ -560,7 +559,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" required></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
@@ -683,8 +682,17 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("setting-store-phone").value = appSettings.storephone || "";
         document.getElementById("setting-tax-rate").value = appSettings.taxrate || 0;
         document.getElementById("setting-starting-cash").value = appSettings.startingcash || 0;
-        const dashInput = document.getElementById("dash-starting-cash-input");
-        if(dashInput) dashInput.value = appSettings.startingcash || 0;
+        
+        const quickInput = document.getElementById("quick-starting-cash-input");
+        if (quickInput) quickInput.value = appSettings.startingcash || 0;
+    }
+
+    async function quickUpdateStartingCash() {
+        const val = parseFloat(document.getElementById("quick-starting-cash-input").value) || 0;
+        appSettings.startingcash = val;
+        await apiFetch("settings/1", "PUT", appSettings);
+        alert("Na-update na ang starting cash (puhunan)!");
+        renderDashboard();
     }
 
     function setupAuth() {
@@ -774,29 +782,21 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
-    async function updateStartingCashFromDash() {
-        const val = parseFloat(document.getElementById("dash-starting-cash-input").value) || 0;
-        appSettings.startingcash = val;
-        await apiFetch("settings/1", "PUT", appSettings);
-        alert("Na-update na ang Starting Cash!");
-        renderDashboard();
-    }
-
     async function renderDashboard() {
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
         const utang = await apiFetch("utang");
 
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalCashSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0, totalCashSalesToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
                 totalOrdersToday++;
-                // Compute cash sales specifically for cash drawer tracking
+                // Kalkulahin ang cash benta lamang (Cash method) para sa drawer breakdown
                 if (s.paymentmethod === "Cash") {
-                    totalCashSalesToday += Number(s.total);
+                    totalCashSalesToday += Number(s.amountpaid || s.total);
                 }
                 if (s.items) {
                     s.items.forEach(item => {
@@ -816,16 +816,18 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
 
-        // Cash Drawer Breakdown Calculation
+        // Render Cash Breakdown values
         const startingCash = Number(appSettings.startingcash || 0);
         const expectedCash = startingCash + totalCashSalesToday;
 
-        const dashStartingInput = document.getElementById("dash-starting-cash-input");
-        if (dashStartingInput && document.activeElement !== dashStartingInput) {
-            dashStartingInput.value = startingCash;
+        document.getElementById("dash-starting-cash-display").innerText = formatCurrency(startingCash);
+        document.getElementById("dash-cash-sales-display").innerText = formatCurrency(totalCashSalesToday);
+        document.getElementById("dash-expected-cash-display").innerText = formatCurrency(expectedCash);
+        
+        const quickInput = document.getElementById("quick-starting-cash-input");
+        if (quickInput && document.activeElement !== quickInput) {
+            quickInput.value = startingCash;
         }
-        document.getElementById("dash-cash-sales").innerText = formatCurrency(totalCashSalesToday);
-        document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
     }
 
     function generateAutoBarcode() {
