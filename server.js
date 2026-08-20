@@ -90,7 +90,7 @@ async function initTables() {
                 storeaddress TEXT,
                 storephone TEXT,
                 taxrate NUMERIC,
-                startingcash NUMERIC DEFAULT 0
+                startingcash NUMERIC
             );
         `);
         
@@ -100,6 +100,11 @@ async function initTables() {
                 INSERT INTO settings (id, storename, storeaddress, storephone, taxrate, startingcash) 
                 VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 0.00)
             `);
+        } else {
+            // Check if startingcash column exists in older setups
+            try {
+                await pool.query("ALTER TABLE settings ADD COLUMN IF NOT EXISTS startingcash NUMERIC DEFAULT 0.00");
+            } catch(e) {}
         }
         
         console.log("Database tables verified/created successfully.");
@@ -175,9 +180,6 @@ app.post("/api/reset-sales", async (req, res) => {
     }
 });
 
-// ================================
-// EMBEDDED CSS
-// ================================
 const EMBEDDED_CSS = `
 :root {
     --primary: #4f46e5;
@@ -255,6 +257,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; display: none; }
 .modal.active { display: flex; }
 .modal-content { background: white; padding: 2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+
 @media print {
     body * { visibility: hidden; }
     #printable-barcodes, #printable-barcodes * { visibility: visible; }
@@ -263,9 +266,6 @@ th { background-color: #f9fafb; font-weight: 600; }
 .barcode-card { display: inline-block; border: 1px dashed #999; padding: 15px; margin: 10px; text-align: center; border-radius: 6px; background: #fff; width: 220px; }
 `;
 
-// ================================
-// HTML TEMPLATE (ADMIN PORTAL)
-// ================================
 const HTML_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -329,28 +329,23 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
             </header>
 
             <div class="views-container">
-                <!-- DASHBOARD VIEW -->
                 <section id="dashboard-view" class="view-section active">
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
-                        <div class="metric-card success"><h3>Total Cash Sales</h3><div class="value" id="dash-cash-sales">₱0.00</div></div>
-                        <div class="metric-card warning"><h3>Total Expected Cash in Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
-                        <div class="metric-card"><h3>Total Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
+                        <div class="metric-card success"><h3>Total Cash Sales</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
+                        <div class="metric-card warning"><h3>Expected Cash in Drawer</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
                         <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
-                        <div class="metric-card warning"><h3>Low Stock Products</h3><div class="value" id="dash-low-stock">0</div></div>
-                        <div class="metric-card success"><h3>Today's Profit</h3><div class="value" id="dash-todays-profit">₱0.00</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
                     </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="openUpdateStartingCashModal()">Update Starting Cash</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="switchView('settings-view')">Update Starting Cash</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSales()">Reset Sales</button>
                     </div>
                 </section>
 
-                <!-- POS VIEW -->
                 <section id="pos-view" class="view-section">
                     <div class="pos-container">
                         <div class="pos-left">
@@ -413,7 +408,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- PRODUCTS VIEW -->
                 <section id="products-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -431,7 +425,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- INVENTORY VIEW -->
                 <section id="inventory-view" class="view-section">
                     <div class="card">
                         <h3>Inventory Logs</h3>
@@ -442,7 +435,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- STOCK IN VIEW -->
                 <section id="stockin-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>Stock In / Restock</h3>
@@ -455,7 +447,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- STOCK OUT VIEW -->
                 <section id="stockout-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
                         <h3>Stock Out / Adjustments</h3>
@@ -476,12 +467,11 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- SALES VIEW -->
                 <section id="sales-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
                             <h3>Sales History</h3>
-                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
+                            <button class="btn btn-danger" style="width:auto;" onclick="resetAllSales()">Reset All Sales</button>
                         </div>
                         <table>
                             <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
@@ -490,7 +480,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- UTANG VIEW -->
                 <section id="utang-view" class="view-section">
                     <div class="card">
                         <h3>Utang / Credit</h3>
@@ -501,7 +490,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- CUSTOMERS VIEW -->
                 <section id="customers-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -515,7 +503,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- EXPENSES VIEW -->
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
@@ -529,33 +516,20 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
 
-                <!-- SETTINGS VIEW -->
                 <section id="settings-view" class="view-section">
                     <div class="card" style="max-width:600px; margin:0 auto;">
-                        <h3>System Settings</h3>
+                        <h3>System Settings & Cash Drawer</h3>
                         <form id="settings-form" onsubmit="saveSettings(event)">
                             <div class="form-group"><label>Store Name</label><input type="text" id="setting-store-name" class="form-control" required></div>
                             <div class="form-group"><label>Store Address</label><input type="text" id="setting-store-address" class="form-control"></div>
                             <div class="form-group"><label>Store Phone</label><input type="text" id="setting-store-phone" class="form-control"></div>
                             <div class="form-group"><label>Tax Rate (%)</label><input type="number" step="0.01" id="setting-tax-rate" class="form-control"></div>
-                            <div class="form-group"><label>Starting Cash (Puhunan)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control"></div>
+                            <div class="form-group"><label>Starting Cash (Puhunan sa Kaha)</label><input type="number" step="0.01" id="setting-starting-cash" class="form-control" value="0.00"></div>
                             <button type="submit" class="btn">Save Settings</button>
                         </form>
                     </div>
                 </section>
             </div>
-        </div>
-    </div>
-
-    <!-- Modals -->
-    <div id="starting-cash-modal" class="modal">
-        <div class="modal-content">
-            <h3>Update Starting Cash (Puhunan)</h3>
-            <form id="starting-cash-form" onsubmit="saveStartingCashModal(event)">
-                <div class="form-group"><label>Starting Cash Amount</label><input type="number" step="0.01" id="modal-starting-cash-input" class="form-control" required></div>
-                <button type="submit" class="btn btn-success">Update Puhunan</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
         </div>
     </div>
 
@@ -637,27 +611,26 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- CLIENT SCRIPT ENGINE -->
     <script>
     let currentUser = null;
     let cart = [];
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00, startingCash: 0.00 };
     let html5QrCode = null;
 
-    // Beep sound generator function
+    // Beep sound generator using Web Audio API
     function playBeep() {
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = "sine";
-            osc.frequency.value = 800;
-            gain.gain.setValueAtTime(0.1, ctx.currentTime);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.15);
-        } catch(e) {}
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.15);
+        } catch (e) {}
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
@@ -781,65 +754,34 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
 
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, todaysProfit = 0, totalCashSales = 0;
+        let totalCashSalesToday = 0, totalOrdersToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
-                totalSalesToday += Number(s.total);
+                if (s.paymentmethod === "Cash" || s.paymentmethod === "GCash" || s.paymentmethod === "Maya" || s.paymentmethod === "Card") {
+                    totalCashSalesToday += Number(s.total);
+                }
                 totalOrdersToday++;
-                if (s.paymentmethod === "Cash") {
-                    totalCashSales += Number(s.amountpaid > 0 ? (Number(s.total) <= Number(s.amountpaid) ? Number(s.total) : Number(s.amountpaid)) : s.total);
-                }
-                if (s.items) {
-                    let parsedItems = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-                    parsedItems.forEach(item => {
-                        todaysProfit += (Number(item.sellingPrice) - Number(item.costPrice)) * Number(item.quantity);
-                    });
-                }
             }
         });
 
-        let startingCash = Number(appSettings.startingcash || 0);
-        let expectedCash = startingCash + totalCashSales;
-        let lowStockCount = products.filter(p => Number(p.stock) <= Number(p.minimumstock || 5)).length;
+        const startingCash = Number(appSettings.startingcash || 0);
+        const expectedCash = startingCash + totalCashSalesToday;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
-        document.getElementById("dash-cash-sales").innerText = formatCurrency(totalCashSales);
+        document.getElementById("dash-total-sales").innerText = formatCurrency(totalCashSalesToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
-        document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
         document.getElementById("dash-total-products").innerText = products.length;
-        document.getElementById("dash-low-stock").innerText = lowStockCount;
-        document.getElementById("dash-todays-profit").innerText = formatCurrency(todaysProfit);
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
     }
 
-    function openUpdateStartingCashModal() {
-        document.getElementById("modal-starting-cash-input").value = appSettings.startingcash || 0;
-        document.getElementById("starting-cash-modal").classList.add("active");
-    }
-
-    async function saveStartingCashModal(e) {
-        e.preventDefault();
-        const val = parseFloat(document.getElementById("modal-starting-cash-input").value) || 0;
-        appSettings.startingcash = val;
-        await apiFetch("settings/1", "PUT", appSettings);
-        closeModals();
-        loadSettings();
-        renderDashboard();
-        alert("Starting cash updated successfully!");
-    }
-
-    async function resetAllSalesData() {
-        if (confirm("Sigurado ka ba na gusto mong i-reset ang lahat ng benta? Mabubura ang sales history at utang records.")) {
-            const res = await fetch("/api/reset-sales", { method: "POST" });
-            if (res.ok) {
-                alert("Na-reset na ang lahat ng benta.");
-                refreshAllViews();
-            } else {
-                alert("May naganap na error sa pag-reset.");
-            }
+    async function resetAllSales() {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng benta at utang?")) {
+            await apiFetch("reset-sales", "POST");
+            alert("Na-reset na ang mga benta!");
+            refreshAllViews();
         }
     }
 
@@ -945,8 +887,19 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(' + p.id + ')">Add</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCartPrompt(' + p.id + ')">Add</button></td></tr>';
         });
+    }
+
+    async function addToCartPrompt(productId) {
+        const products = await apiFetch("products");
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+        if (qtyInput === null) return;
+        let qty = parseInt(qtyInput);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -954,6 +907,8 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.id === productId);
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
+
+        playBeep();
 
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
@@ -969,7 +924,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
                 quantity: qty
             });
         }
-        playBeep();
         renderCart();
     }
 
@@ -1007,7 +961,13 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         const products = await apiFetch("products");
         const product = products.find(p => p.barcode === code);
         if (product) {
-            addToCart(product.id);
+            let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+            if (qtyInput !== null) {
+                let qty = parseInt(qtyInput);
+                if (!isNaN(qty) && qty > 0) {
+                    addToCart(product.id, qty);
+                }
+            }
             inputField.value = "";
             inputField.focus();
         } else {
@@ -1110,7 +1070,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         alert("Transaction complete!");
         cart = [];
         renderCart();
-        refreshAllViews();
+        if (typeof renderDashboard === 'function') refreshAllViews();
     }
 
     function startScanner() {
@@ -1119,7 +1079,15 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
             const products = await apiFetch("products");
             const product = products.find(p => p.barcode === decodedText);
-            if (product) addToCart(product.id);
+            if (product) {
+                let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+                if (qtyInput !== null) {
+                    let qty = parseInt(qtyInput);
+                    if (!isNaN(qty) && qty > 0) {
+                        addToCart(product.id, qty);
+                    }
+                }
+            }
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
@@ -1331,6 +1299,7 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
         await apiFetch("settings/1", "PUT", appSettings);
         alert("Settings saved!");
         loadSettings();
+        renderDashboard();
     }
 
     async function populateDropdowns() {
@@ -1352,9 +1321,6 @@ const HTML_TEMPLATE = `<!DOCTYPE html>
 </html>
 `;
 
-// ================================
-// HTML TEMPLATE (CASHIER PORTAL - NO PASSWORD)
-// ================================
 const CASHIER_TEMPLATE = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1442,22 +1408,21 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     <script>
     let cart = [];
     let appSettings = { storeName: "SmartStore POS", storeAddress: "Philippines", storePhone: "09123456789", taxRate: 0.00 };
-    let currentUser = { username: "Cashier Terminal", role: "CASHIER" };
     let html5QrCode = null;
 
     function playBeep() {
         try {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.type = "sine";
-            osc.frequency.value = 800;
-            gain.gain.setValueAtTime(0.1, ctx.currentTime);
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            osc.stop(ctx.currentTime + 0.15);
-        } catch(e) {}
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(800, audioCtx.currentTime);
+            gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            oscillator.start();
+            oscillator.stop(audioCtx.currentTime + 0.15);
+        } catch (e) {}
     }
 
     window.addEventListener("DOMContentLoaded", async () => {
@@ -1501,8 +1466,19 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         products.forEach(p => {
-            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCart(' + p.id + ')">Add</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + p.name + '</td><td>' + formatCurrency(p.sellingprice) + '</td><td>' + p.stock + '</td><td><button class="btn" style="padding:0.25rem 0.5rem; width:auto;" onclick="addToCartPrompt(' + p.id + ')">Add</button></td></tr>';
         });
+    }
+
+    async function addToCartPrompt(productId) {
+        const products = await apiFetch("products");
+        const product = products.find(p => p.id === productId);
+        if (!product) return;
+        let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+        if (qtyInput === null) return;
+        let qty = parseInt(qtyInput);
+        if (isNaN(qty) || qty <= 0) { alert("Invalid quantity!"); return; }
+        addToCart(productId, qty);
     }
 
     async function addToCart(productId, qty = 1) {
@@ -1510,6 +1486,8 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const product = products.find(p => p.id === productId);
         if (!product) return;
         if (product.stock < qty) { alert("Insufficient stock!"); return; }
+
+        playBeep();
 
         const existing = cart.find(item => item.productId === productId);
         if (existing) {
@@ -1525,7 +1503,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                 quantity: qty
             });
         }
-        playBeep();
         renderCart();
     }
 
@@ -1562,7 +1539,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const products = await apiFetch("products");
         const product = products.find(p => p.barcode === code);
         if (product) {
-            addToCart(product.id);
+            let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+            if (qtyInput !== null) {
+                let qty = parseInt(qtyInput);
+                if (!isNaN(qty) && qty > 0) {
+                    addToCart(product.id, qty);
+                }
+            }
             inputField.value = "";
             inputField.focus();
         } else {
@@ -1675,7 +1658,15 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         html5QrCode.start({ facingMode: "environment" }, config, async (decodedText) => {
             const products = await apiFetch("products");
             const product = products.find(p => p.barcode === decodedText);
-            if (product) addToCart(product.id);
+            if (product) {
+                let qtyInput = prompt("Ilang piraso ng " + product.name + " ang bibilhin?", "1");
+                if (qtyInput !== null) {
+                    let qty = parseInt(qtyInput);
+                    if (!isNaN(qty) && qty > 0) {
+                        addToCart(product.id, qty);
+                    }
+                }
+            }
         }).catch(err => alert("Camera error: " + err));
     }
     function stopScanner() {
