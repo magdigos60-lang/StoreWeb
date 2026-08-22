@@ -41,8 +41,7 @@ async function initTables() {
                 paymentmethod TEXT,
                 status TEXT,
                 cashier TEXT,
-                date TEXT,
-                totalprofit NUMERIC DEFAULT 0
+                date TEXT
             );
             CREATE TABLE IF NOT EXISTS inventory (
                 id SERIAL PRIMARY KEY,
@@ -320,9 +319,10 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card success" style="border-left-color: #065f46;"><h3>Total Profit Today (Tubo)</h3><div class="value" id="dash-total-profit">₱0.00</div></div>
-                        <div class="metric-card danger"><h3>Cash Out (Grocery / Bawas Kaha)</h3><div class="value" id="dash-total-cashout">₱0.00</div></div>
                         <div class="metric-card warning"><h3>Expected Cash sa Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
+                        <div class="metric-card success"><h3>Gross Profit Today (Tubo)</h3><div class="value" id="dash-gross-profit">₱0.00</div></div>
+                        <div class="metric-card danger"><h3>Expenses / Cash Withdrawals</h3><div class="value" id="dash-total-expenses">₱0.00</div></div>
+                        <div class="metric-card success" style="border-left-color: #059669;"><h3>Net Profit (Malinis na Tubo)</h3><div class="value" id="dash-net-profit">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
                         <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
@@ -330,7 +330,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-danger" style="width: auto; background-color: #b91c1c;" onclick="openCashOutModal()">Kunin ang Pera / Grocery Cash Out</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="openWithdrawCashModal()">Kuhang Pera (Grocery/Expenses)</button>
                         <button class="btn btn-warning" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
                         <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales</button>
                     </div>
@@ -371,7 +371,6 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                             </div>
                             <div class="cart-summary-box">
                                 <div class="summary-row"><span>Subtotal:</span><span id="cart-subtotal">₱0.00</span></div>
-                                <div class="summary-row"><span>Est. Profit (Tubo):</span><span id="cart-profit" style="color:var(--success);">₱0.00</span></div>
                                 <div class="summary-row"><span>Tax:</span><span id="cart-tax">₱0.00</span></div>
                                 <div class="summary-row total"><span>Total:</span><span id="cart-grand-total">₱0.00</span></div>
                                 <div class="form-group" style="margin-top:10px;">
@@ -462,7 +461,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                             <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
-                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Profit (Tubo)</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="sales-table-tbody"></tbody>
                         </table>
                     </div>
@@ -494,11 +493,11 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
-                            <h3>Expenses & Cash Outs (Grocery / Pera na Kinuha)</h3>
+                            <h3>Expenses & Cash Withdrawals</h3>
                             <button class="btn btn-success" style="width:auto;" onclick="openAddExpenseModal()">Add Expense</button>
                         </div>
                         <table>
-                            <thead><tr><th>Name / Reason</th><th>Category</th><th>Amount</th><th>Date</th><th>Notes</th></tr></thead>
+                            <thead><tr><th>Name / Purpose</th><th>Category</th><th>Amount</th><th>Date</th><th>Notes</th></tr></thead>
                             <tbody id="expenses-table-tbody"></tbody>
                         </table>
                     </div>
@@ -521,20 +520,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Cash Out Modal (Para sa pagkuha ng pera pang-grocery o iba pa) -->
-    <div id="cashout-modal" class="modal">
-        <div class="modal-content">
-            <h3>Kunin ang Pera / Cash Out (Grocery / Personal)</h3>
-            <form id="cashout-form" onsubmit="saveCashOut(event)">
-                <div class="form-group"><label>Pangalan / Dahilan (Hal. Pambili ng Grocery sa Palengke)</label><input type="text" id="cashout-name" class="form-control" required placeholder="Grocery pamilya"></div>
-                <div class="form-group"><label>Halaga ng Kinuha (Amount)</label><input type="number" step="0.01" id="cashout-amount" class="form-control" required></div>
-                <div class="form-group"><label>Notes / Detalye</label><input type="text" id="cashout-notes" class="form-control" placeholder="Kinuha sa kaha"></div>
-                <button type="submit" class="btn btn-danger">I-save ang Cash Out</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
+    <!-- Modals -->
     <div id="product-modal" class="modal">
         <div class="modal-content">
             <h3 id="product-modal-title">Add Product</h3>
@@ -548,8 +534,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 </div>
                 <div class="form-group"><label>Name</label><input type="text" id="prod-name" class="form-control" required></div>
                 <div class="form-group"><label>Category</label><input type="text" id="prod-category" class="form-control"></div>
-                <div class="form-group"><label>Cost Price (Puhunan ng Item)</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
-                <div class="form-group"><label>Selling Price (Benta)</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
+                <div class="form-group"><label>Cost Price</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
+                <div class="form-group"><label>Selling Price</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
                 <div class="form-group"><label>Stock</label><input type="number" id="prod-stock" class="form-control" value="0" required></div>
                 <button type="submit" class="btn btn-success">Save Product</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
@@ -582,18 +568,35 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
 
     <div id="expense-modal" class="modal">
         <div class="modal-content">
-            <h3>Add Expense</h3>
+            <h3>Add Expense / Withdrawal</h3>
             <form id="expense-form" onsubmit="saveExpense(event)">
-                <div class="form-group"><label>Name</label><input type="text" id="exp-name" class="form-control" required></div>
+                <div class="form-group"><label>Pangalan / Dahilan (Hal. Panggrocery, Kuryente)</label><input type="text" id="exp-name" class="form-control" required></div>
                 <div class="form-group"><label>Category</label>
                     <select id="exp-cat" class="form-control">
-                        <option value="Grocery / Personal Cash Out">Grocery / Personal Cash Out</option>
-                        <option value="Rent">Rent</option><option value="Electricity">Electricity</option><option value="Water">Water</option><option value="Supplies">Supplies</option><option value="Other">Other</option>
+                        <option value="Grocery / Personal">Grocery / Personal</option>
+                        <option value="Rent">Rent</option>
+                        <option value="Electricity">Electricity</option>
+                        <option value="Water">Water</option>
+                        <option value="Supplies">Supplies</option>
+                        <option value="Other">Other</option>
                     </select>
                 </div>
-                <div class="form-group"><label>Amount</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
+                <div class="form-group"><label>Halaga (Amount)</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
                 <div class="form-group"><label>Notes</label><input type="text" id="exp-notes" class="form-control"></div>
-                <button type="submit" class="btn btn-success">Save Expense</button>
+                <button type="submit" class="btn btn-success">Save Expense / Withdrawal</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Withdraw Cash Quick Modal -->
+    <div id="withdraw-cash-modal" class="modal">
+        <div class="modal-content">
+            <h3>Kuhang Pera sa Kaha (Grocery / Withdraw)</h3>
+            <form id="withdraw-cash-form" onsubmit="saveCashWithdrawal(event)">
+                <div class="form-group"><label>Magkano ang kukunin?</label><input type="number" step="0.01" id="withdraw-amount" class="form-control" required></div>
+                <div class="form-group"><label>Para saan? (Hal. Panggrocery sa palengke)</label><input type="text" id="withdraw-notes" class="form-control" value="Panggrocery" required></div>
+                <button type="submit" class="btn btn-warning" style="color:white;">Kuhain ang Pera</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
             </form>
         </div>
@@ -737,59 +740,49 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
         const expenses = await apiFetch("expenses");
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, totalProfitToday = 0, totalCashOutToday = 0;
+        
+        let totalSalesToday = 0, totalOrdersToday = 0, grossProfitToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
-                totalProfitToday += Number(s.totalprofit || 0);
                 totalOrdersToday++;
+                
+                // Calculate accurate profit from items sold
+                const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
+                if (itemsParsed) {
+                    itemsParsed.forEach(item => {
+                        const selling = Number(item.sellingPrice || 0);
+                        const cost = Number(item.costPrice || 0);
+                        const qty = Number(item.quantity || 0);
+                        grossProfitToday += (selling - cost) * qty;
+                    });
+                }
             }
         });
 
+        let totalExpensesToday = 0;
         expenses.forEach(e => {
             if (e.date && e.date.startsWith(today)) {
-                totalCashOutToday += Number(e.amount);
+                totalExpensesToday += Number(e.amount);
             }
         });
 
         let startingCash = Number(appSettings.startingcash || 0);
-        // Expected cash = Puhunan + Sales benta - mga kinuha/gastos (Cash Out)
-        let expectedCash = startingCash + totalSalesToday - totalCashOutToday;
+        // Expected cash in drawer = Starting Cash + Total Cash Sales - Cash Withdrawn/Expenses
+        let expectedCash = startingCash + totalSalesToday - totalExpensesToday;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
+        let netProfitToday = grossProfitToday - totalExpensesToday;
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
-        document.getElementById("dash-total-profit").innerText = formatCurrency(totalProfitToday);
-        document.getElementById("dash-total-cashout").innerText = formatCurrency(totalCashOutToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
+        document.getElementById("dash-gross-profit").innerText = formatCurrency(grossProfitToday);
+        document.getElementById("dash-total-expenses").innerText = formatCurrency(totalExpensesToday);
+        document.getElementById("dash-net-profit").innerText = formatCurrency(netProfitToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
         document.getElementById("dash-total-products").innerText = products.length;
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
-    }
-
-    function openCashOutModal() {
-        document.getElementById("cashout-form").reset();
-        document.getElementById("cashout-modal").classList.add("active");
-    }
-
-    async function saveCashOut(e) {
-        e.preventDefault();
-        const name = document.getElementById("cashout-name").value;
-        const amount = parseFloat(document.getElementById("cashout-amount").value);
-        const notes = document.getElementById("cashout-notes").value;
-        
-        await apiFetch("expenses", "POST", {
-            name: name,
-            category: "Grocery / Personal Cash Out",
-            amount: amount,
-            notes: notes || "Kinuha sa kaha para panggrocery/personal",
-            date: new Date().toISOString()
-        });
-        
-        closeModals();
-        refreshAllViews();
-        alert("Matagumpay na na-record ang Cash Out!");
     }
 
     async function updateStartingCashPrompt() {
@@ -800,6 +793,29 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
             renderDashboard();
             alert("Na-update na ang Puhunan!");
         }
+    }
+
+    function openWithdrawCashModal() {
+        document.getElementById("withdraw-cash-form").reset();
+        document.getElementById("withdraw-cash-modal").classList.add("active");
+    }
+
+    async function saveCashWithdrawal(e) {
+        e.preventDefault();
+        const amount = parseFloat(document.getElementById("withdraw-amount").value);
+        const notes = document.getElementById("withdraw-notes").value;
+        if (isNaN(amount) || amount <= 0) { alert("Invalid amount!"); return; }
+
+        await apiFetch("expenses", "POST", {
+            name: notes,
+            category: "Grocery / Personal",
+            amount: amount,
+            notes: "Cash withdrawal from drawer",
+            date: new Date().toISOString()
+        });
+        closeModals();
+        refreshAllViews();
+        alert("Matagumpay na nakuha ang pera sa kaha!");
     }
 
     async function resetAllSalesData() {
@@ -948,17 +964,13 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
-        let totalProfit = 0;
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
-            const itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
             subtotal += itemSub;
-            totalProfit += itemProfit;
             tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         document.getElementById("cart-subtotal").innerText = formatCurrency(subtotal);
-        document.getElementById("cart-profit").innerText = formatCurrency(totalProfit);
         document.getElementById("cart-tax").innerText = formatCurrency(tax);
         document.getElementById("cart-grand-total").innerText = formatCurrency(subtotal + tax);
         calculateChange();
@@ -1006,7 +1018,6 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
     async function completeCheckout() {
         if (cart.length === 0) { alert("Cart is empty!"); return; }
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
-        const totalProfit = cart.reduce((sum, item) => sum + ((item.sellingPrice - item.costPrice) * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
         const paymentMethod = document.getElementById("pos-payment-method").value;
@@ -1030,8 +1041,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
             subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
-            cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString(),
-            totalprofit: totalProfit
+            cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString()
         };
 
         const saleRes = await apiFetch("sales", "POST", saleRecord);
@@ -1066,7 +1076,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 });
             }
         }
-        alert("Transaction complete! Tubo: " + formatCurrency(totalProfit) + " | Sukli: " + formatCurrency(change));
+        alert("Transaction complete! Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
         refreshAllViews();
@@ -1156,8 +1166,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            const profitVal = Number(s.totalprofit || 0);
-            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td style="color:var(--success); font-weight:bold;">' + formatCurrency(profitVal) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
         });
     }
 
@@ -1285,7 +1294,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
     </script>
 </body>
 </html>
@@ -1342,7 +1351,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             </div>
             <div class="cart-summary-box">
                 <div class="summary-row"><span>Subtotal:</span><span id="cart-subtotal">₱0.00</span></div>
-                <div class="summary-row"><span>Est. Profit (Tubo):</span><span id="cart-profit" style="color:var(--success);">₱0.00</span></div>
                 <div class="summary-row"><span>Tax:</span><span id="cart-tax">₱0.00</span></div>
                 <div class="summary-row total"><span>Total:</span><span id="cart-grand-total">₱0.00</span></div>
                 <div class="form-group" style="margin-top:10px;">
@@ -1457,17 +1465,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         let subtotal = 0;
-        let totalProfit = 0;
         cart.forEach((item, index) => {
             const itemSub = item.sellingPrice * item.quantity;
-            const itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
             subtotal += itemSub;
-            totalProfit += itemProfit;
             tbody.innerHTML += '<tr><td>' + item.name + '</td><td><button onclick="updateCartQty(' + index + ', -1)">-</button> ' + item.quantity + ' <button onclick="updateCartQty(' + index + ', 1)">+</button></td><td>' + formatCurrency(item.sellingPrice) + '</td><td>' + formatCurrency(itemSub) + '</td><td><button class="btn btn-danger" style="padding:0.1rem 0.3rem; width:auto;" onclick="removeFromCart(' + index + ')">X</button></td></tr>';
         });
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         document.getElementById("cart-subtotal").innerText = formatCurrency(subtotal);
-        document.getElementById("cart-profit").innerText = formatCurrency(totalProfit);
         document.getElementById("cart-tax").innerText = formatCurrency(tax);
         document.getElementById("cart-grand-total").innerText = formatCurrency(subtotal + tax);
         calculateChange();
@@ -1515,7 +1519,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
     async function completeCheckout() {
         if (cart.length === 0) { alert("Cart is empty!"); return; }
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
-        const totalProfit = cart.reduce((sum, item) => sum + ((item.sellingPrice - item.costPrice) * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
         const paymentMethod = document.getElementById("pos-payment-method").value;
@@ -1539,8 +1542,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
             subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
-            cashier: "Cashier Mobile", date: new Date().toISOString(),
-            totalprofit: totalProfit
+            cashier: "Cashier Mobile", date: new Date().toISOString()
         };
 
         const saleRes = await apiFetch("sales", "POST", saleRecord);
@@ -1575,7 +1577,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                 });
             }
         }
-        alert("Transaction complete! Tubo: " + formatCurrency(totalProfit) + " | Sukli: " + formatCurrency(change));
+        alert("Transaction complete! Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
         document.getElementById("manual-barcode-input").focus();
@@ -1603,7 +1605,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
     }
 
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
     </script>
 </body>
 </html>
