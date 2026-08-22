@@ -36,7 +36,6 @@ async function initTables() {
                 subtotal NUMERIC,
                 tax NUMERIC,
                 total NUMERIC,
-                profit NUMERIC,
                 amountpaid NUMERIC,
                 change NUMERIC,
                 paymentmethod TEXT,
@@ -102,9 +101,9 @@ async function initTables() {
                 VALUES (1, 'SmartStore POS', 'Philippines', '09123456789', 0.00, 1000.00)
             `);
         }
-        console.log("Database tables verified/created successfully.");
+        console.log("Database tables verified/created successfully.");[cite: 1]
     } catch (err) {
-        console.error("Error creating tables:", err);
+        console.error("Error creating tables:", err);[cite: 1]
     }
 }
 
@@ -114,9 +113,9 @@ app.get("/api/:table", async (req, res) => {
     try {
         const { table } = req.params;
         const result = await pool.query(`SELECT * FROM ${table} ORDER BY id DESC`);
-        res.json(result.rows);
+        res.json(result.rows);[cite: 1]
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });[cite: 1]
     }
 });
 
@@ -131,9 +130,9 @@ app.post("/api/:table", async (req, res) => {
 
         const query = "INSERT INTO " + table + " (" + columns + ") VALUES (" + placeholders + ") RETURNING id;";
         const result = await pool.query(query, values);
-        res.json({ id: result.rows[0].id, success: true });
+        res.json({ id: result.rows[0].id, success: true });[cite: 1]
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });[cite: 1]
     }
 });
 
@@ -148,9 +147,9 @@ app.put("/api/:table/:id", async (req, res) => {
 
         const query = "UPDATE " + table + " SET " + setString + " WHERE id = $" + (keys.length + 1) + ";";
         await pool.query(query, [...values, id]);
-        res.json({ success: true });
+        res.json({ success: true });[cite: 1]
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });[cite: 1]
     }
 });
 
@@ -159,9 +158,9 @@ app.delete("/api/resetsales", async (req, res) => {
         await pool.query("DELETE FROM sales;");
         await pool.query("DELETE FROM utang;");
         await pool.query("DELETE FROM expenses;");
-        res.json({ success: true });
+        res.json({ success: true });[cite: 1]
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });[cite: 1]
     }
 });
 
@@ -169,9 +168,9 @@ app.delete("/api/:table/:id", async (req, res) => {
     try {
         const { table, id } = req.params;
         await pool.query("DELETE FROM " + table + " WHERE id = $1;", [id]);
-        res.json({ success: true });
+        res.json({ success: true });[cite: 1]
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message });[cite: 1]
     }
 });
 
@@ -251,7 +250,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 .badge-danger { background: #fee2e2; color: #991b1b; }
 .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; display: none; }
 .modal.active { display: flex; }
-.modal-content { background: white; padding: 2.2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+.modal-content { background: white; padding: 2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
 @media print {
     body * { visibility: hidden; }
     #printable-barcodes, #printable-barcodes * { visibility: visible; }
@@ -298,7 +297,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <li data-target="sales-view"><a href="#">Sales</a></li>
                 <li data-target="utang-view"><a href="#">Utang / Credit</a></li>
                 <li data-target="customers-view"><a href="#">Customers</a></li>
-                <li data-target="expenses-view"><a href="#">Expenses / Kuha Pera</a></li>
+                <li data-target="expenses-view"><a href="#">Expenses</a></li>
                 <li data-target="settings-view"><a href="#">Settings</a></li>
                 <li><a href="#" id="logout-btn">Logout</a></li>
             </ul>
@@ -321,9 +320,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card success" style="border-left-color: #06b6d4;"><h3>Total Profit Today (Tubo)</h3><div class="value" id="dash-total-profit">₱0.00</div></div>
                         <div class="metric-card warning"><h3>Expected Cash sa Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
-                        <div class="metric-card danger"><h3>Total Kuha Pera / Grocery</h3><div class="value" id="dash-total-expenses">₱0.00</div></div>
+                        <div class="metric-card success"><h3>Total Net Profit (Tubo)</h3><div class="value" id="dash-total-profit">₱0.00</div></div>
+                        <div class="metric-card danger"><h3>Total Expenses (Kuha/Grocery)</h3><div class="value" id="dash-total-expenses">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
                         <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
@@ -331,9 +330,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="openAddExpenseModal()">Kuha Pera / Grocery</button>
-                        <button class="btn btn-secondary" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset All Sales & Dashboard</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="openQuickCashOutModal()">Kumuha ng Pera (Grocery/Gastos)</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset All Data</button>
                     </div>
                 </section>
 
@@ -462,7 +461,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                             <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
-                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Profit</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="sales-table-tbody"></tbody>
                         </table>
                     </div>
@@ -494,11 +493,11 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
-                            <h3>Expenses & Kuha Pera (Grocery Funds)</h3>
-                            <button class="btn btn-success" style="width:auto;" onclick="openAddExpenseModal()">Magkuha ng Pera / Add Expense</button>
+                            <h3>Expenses & Cash Outs (Grocery / Gastos)</h3>
+                            <button class="btn btn-success" style="width:auto;" onclick="openAddExpenseModal()">Add Expense</button>
                         </div>
                         <table>
-                            <thead><tr><th>Pangalan / Desc</th><th>Kategorya</th><th>Halaga</th><th>Petsa</th><th>Notes</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Name</th><th>Category</th><th>Amount</th><th>Date</th><th>Notes</th></tr></thead>
                             <tbody id="expenses-table-tbody"></tbody>
                         </table>
                     </div>
@@ -534,8 +533,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 </div>
                 <div class="form-group"><label>Name</label><input type="text" id="prod-name" class="form-control" required></div>
                 <div class="form-group"><label>Category</label><input type="text" id="prod-category" class="form-control"></div>
-                <div class="form-group"><label>Cost Price (Presyo ng Bili mo)</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
-                <div class="form-group"><label>Selling Price (Presyo ng Bentahan)</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
+                <div class="form-group"><label>Cost Price</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
+                <div class="form-group"><label>Selling Price</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
                 <div class="form-group"><label>Stock</label><input type="number" id="prod-stock" class="form-control" value="0" required></div>
                 <button type="submit" class="btn btn-success">Save Product</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
@@ -568,13 +567,12 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
 
     <div id="expense-modal" class="modal">
         <div class="modal-content">
-            <h3>Kuha Pera / Grocery Funds</h3>
+            <h3>Kumuha ng Pera / Gastos (Grocery/Cash Out)</h3>
             <form id="expense-form" onsubmit="saveExpense(event)">
-                <div class="form-group"><label>Para saan ang kinuha? (Hal. Grocery, Personal, Kuryente)</label><input type="text" id="exp-name" class="form-control" placeholder="Grocery pamili..." required></div>
-                <div class="form-group"><label>Kategorya</label>
+                <div class="form-group"><label>Pangalan ng Gastos / Grocery Item</label><input type="text" id="exp-name" class="form-control" placeholder="Hal. Grocery para sa bahay" required></div>
+                <div class="form-group"><label>Category</label>
                     <select id="exp-cat" class="form-control">
-                        <option value="Grocery">Grocery / Pang-araw-araw</option>
-                        <option value="Personal Withdrawal">Personal Withdrawal / Kuha Pera</option>
+                        <option value="Grocery / Personal">Grocery / Personal</option>
                         <option value="Rent">Rent</option>
                         <option value="Electricity">Electricity</option>
                         <option value="Water">Water</option>
@@ -582,9 +580,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                         <option value="Other">Other</option>
                     </select>
                 </div>
-                <div class="form-group"><label>Magkanong Pera ang kinuha?</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
-                <div class="form-group"><label>Notes (Opsyonal)</label><input type="text" id="exp-notes" class="form-control"></div>
-                <button type="submit" class="btn btn-success">I-save ang Kuha Pera</button>
+                <div class="form-group"><label>Halaga (Amount)</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
+                <div class="form-group"><label>Notes</label><input type="text" id="exp-notes" class="form-control" placeholder="Karagdagang detalye..."></div>
+                <button type="submit" class="btn btn-success">I-save ang Kuha / Gastos</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
             </form>
         </div>
@@ -728,31 +726,41 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
         const expenses = await apiFetch("expenses");
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, totalProfitToday = 0, totalExpensesToday = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0, totalGrossProfitToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
-                totalProfitToday += Number(s.profit || 0);
                 totalOrdersToday++;
+                
+                const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
+                if (itemsParsed) {
+                    itemsParsed.forEach(item => {
+                        const selling = Number(item.sellingPrice || 0);
+                        const cost = Number(item.costPrice || 0);
+                        const qty = Number(item.quantity || 0);
+                        totalGrossProfitToday += (selling - cost) * qty;
+                    });
+                }
             }
         });
 
+        let totalExpensesToday = 0;
         expenses.forEach(e => {
             if (e.date && e.date.startsWith(today)) {
                 totalExpensesToday += Number(e.amount);
             }
         });
 
+        let netProfitToday = totalGrossProfitToday - totalExpensesToday;
         let startingCash = Number(appSettings.startingcash || 0);
-        // Expected Cash = Starting Cash + Total Cash Sales - Total Kuha Pera/Expenses
-        let expectedCash = (startingCash + totalSalesToday) - totalExpensesToday;
+        let expectedCash = startingCash + totalSalesToday - totalExpensesToday;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
-        document.getElementById("dash-total-profit").innerText = formatCurrency(totalProfitToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
+        document.getElementById("dash-total-profit").innerText = formatCurrency(netProfitToday);
         document.getElementById("dash-total-expenses").innerText = formatCurrency(totalExpensesToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
         document.getElementById("dash-total-products").innerText = products.length;
@@ -770,9 +778,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
     }
 
     async function resetAllSalesData() {
-        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales, Utang, at Kuha Pera sa Dashboard pabalik sa zero?")) {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales, Utang, at Expenses pabalik sa zero?")) {
             await fetch("/api/resetsales", { method: "DELETE" });
-            alert("Na-reset na ang dashboard at sales data!");
+            alert("Na-reset na ang lahat ng datos!");
             refreshAllViews();
         }
     }
@@ -788,6 +796,11 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         document.getElementById("product-modal-title").innerText = "Add Product";
         generateAutoBarcode();
         document.getElementById("product-modal").classList.add("active");
+    }
+
+    function openQuickCashOutModal() {
+        document.getElementById("expense-form").reset();
+        document.getElementById("expense-modal").classList.add("active");
     }
 
     async function openPrintBarcodeModal() {
@@ -971,14 +984,6 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
-
-        // Accurate Profit calculation for all items in the cart
-        let totalProfit = 0;
-        cart.forEach(item => {
-            let itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
-            totalProfit += itemProfit;
-        });
-
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -998,7 +1003,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, profit: totalProfit, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString()
         };
@@ -1125,7 +1130,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td style="color:var(--success); font-weight:bold;">' + formatCurrency(s.profit || 0) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
         });
     }
 
@@ -1218,7 +1223,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         });
         closeModals();
         refreshAllViews();
-        alert("Na-record na ang pagkuha ng pera!");
+        alert("Naitala na ang kuha ng pera / gastos!");
     }
     async function renderExpensesTable() {
         const expenses = await apiFetch("expenses");
@@ -1226,14 +1231,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         expenses.forEach(e => {
-            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td style="color:var(--danger); font-weight:bold;">' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteExpense(' + e.id + ')">Delete</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td>' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td></tr>';
         });
-    }
-    async function deleteExpense(id) {
-        if (confirm("Burahin ang record na ito?")) {
-            await apiFetch("expenses/" + id, "DELETE");
-            refreshAllViews();
-        }
     }
 
     async function saveSettings(e) {
@@ -1487,13 +1486,6 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
-
-        let totalProfit = 0;
-        cart.forEach(item => {
-            let itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
-            totalProfit += itemProfit;
-        });
-
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -1513,7 +1505,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, profit: totalProfit, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: "Cashier Mobile", date: new Date().toISOString()
         };
