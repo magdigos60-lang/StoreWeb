@@ -36,6 +36,7 @@ async function initTables() {
                 subtotal NUMERIC,
                 tax NUMERIC,
                 total NUMERIC,
+                totalprofit NUMERIC DEFAULT 0,
                 amountpaid NUMERIC,
                 change NUMERIC,
                 paymentmethod TEXT,
@@ -84,11 +85,11 @@ async function initTables() {
                 notes TEXT,
                 date TEXT
             );
-            CREATE TABLE IF NOT EXISTS cash_withdrawals (
+            CREATE TABLE IF NOT EXISTS cashdrawers (
                 id SERIAL PRIMARY KEY,
+                type TEXT,
                 amount NUMERIC,
                 reason TEXT,
-                notes TEXT,
                 date TEXT,
                 "user" TEXT
             );
@@ -165,7 +166,7 @@ app.delete("/api/resetsales", async (req, res) => {
     try {
         await pool.query("DELETE FROM sales;");
         await pool.query("DELETE FROM utang;");
-        await pool.query("DELETE FROM cash_withdrawals;");
+        await pool.query("DELETE FROM cashdrawers;");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -328,7 +329,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
-                        <div class="metric-card danger"><h3>Total Cash Out / Grocery</h3><div class="value" id="dash-total-withdrawal">₱0.00</div></div>
+                        <div class="metric-card success"><h3>Total Profit Today (Tubo)</h3><div class="value" id="dash-total-profit">₱0.00</div></div>
                         <div class="metric-card warning"><h3>Expected Cash sa Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
                         <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
@@ -337,8 +338,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="openWithdrawModal()">Kuhang Pera / Grocery</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="openCashDrawerModal()">Kunin sa Kaha (Grocery/Personal)</button>
+                        <button class="btn btn-secondary" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
                         <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales</button>
                     </div>
                 </section>
@@ -464,11 +465,11 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <section id="sales-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
-                            <h3>Sales History</h3>
+                            <h3>Sales History & Profit</h3>
                             <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
-                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Profit (Tubo)</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="sales-table-tbody"></tbody>
                         </table>
                     </div>
@@ -524,27 +525,6 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     </div>
                 </section>
             </div>
-        </div>
-    </div>
-
-    <!-- Withdraw / Grocery Cash Out Modal -->
-    <div id="withdraw-modal" class="modal">
-        <div class="modal-content">
-            <h3>Kumuha ng Pera sa Kaha (Grocery / Personal / Iba Pa)</h3>
-            <form id="withdraw-form" onsubmit="saveWithdrawal(event)">
-                <div class="form-group"><label>Halaga (Amount)</label><input type="number" step="0.01" id="withdraw-amount" class="form-control" required></div>
-                <div class="form-group"><label>Layunin (Reason)</label>
-                    <select id="withdraw-reason" class="form-control">
-                        <option value="Grocery">Grocery / Pamimili</option>
-                        <option value="Personal">Personal Use</option>
-                        <option value="Change Fund">Dagdag Sukli / Change Fund</option>
-                        <option value="Other">Iba pa</option>
-                    </select>
-                </div>
-                <div class="form-group"><label>Mga Tala (Notes / Description)</label><input type="text" id="withdraw-notes" class="form-control" placeholder="Hal. Binili para sa bahay"></div>
-                <button type="submit" class="btn btn-danger">Kuhanin ang Pera</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
         </div>
     </div>
 
@@ -606,6 +586,18 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <div class="form-group"><label>Amount</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
                 <div class="form-group"><label>Notes</label><input type="text" id="exp-notes" class="form-control"></div>
                 <button type="submit" class="btn btn-success">Save Expense</button>
+                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="cashdrawer-modal" class="modal">
+        <div class="modal-content">
+            <h3>Kunin sa Kaha (Grocery / Personal)</h3>
+            <form id="cashdrawer-form" onsubmit="saveCashDrawer(event)">
+                <div class="form-group"><label>Halaga na kukunin</label><input type="number" step="0.01" id="drawer-amount" class="form-control" required></div>
+                <div class="form-group"><label>Para saan? (Notes)</label><input type="text" id="drawer-reason" class="form-control" placeholder="Hal. Pambili ng grocery o personal use" required></div>
+                <button type="submit" class="btn btn-danger">Kunan ang Kaha</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
             </form>
         </div>
@@ -747,64 +739,35 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const sales = await apiFetch("sales");
         const products = await apiFetch("products");
         const utang = await apiFetch("utang");
-        const withdrawals = await apiFetch("cash_withdrawals");
+        const drawers = await apiFetch("cashdrawers");
         const today = new Date().toISOString().slice(0, 10);
-        let totalSalesToday = 0, totalOrdersToday = 0, totalWithdrawalToday = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0, totalProfitToday = 0, totalWithdrawnToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
+                totalProfitToday += Number(s.totalprofit || 0);
                 totalOrdersToday++;
             }
         });
 
-        withdrawals.forEach(w => {
-            if (w.date && w.date.startsWith(today)) {
-                totalWithdrawalToday += Number(w.amount);
+        drawers.forEach(d => {
+            if (d.date && d.date.startsWith(today)) {
+                totalWithdrawnToday += Number(d.amount);
             }
         });
 
         let startingCash = Number(appSettings.startingcash || 0);
-        // Expected cash considers starting cash + sales minus cash taken out (e.g. for grocery)
-        let expectedCash = startingCash + totalSalesToday - totalWithdrawalToday;
+        let expectedCash = startingCash + totalSalesToday - totalWithdrawnToday;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
-        document.getElementById("dash-total-withdrawal").innerText = formatCurrency(totalWithdrawalToday);
+        document.getElementById("dash-total-profit").innerText = formatCurrency(totalProfitToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
         document.getElementById("dash-total-products").innerText = products.length;
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
-    }
-
-    function openWithdrawModal() {
-        document.getElementById("withdraw-form").reset();
-        document.getElementById("withdraw-modal").classList.add("active");
-    }
-
-    async function saveWithdrawal(e) {
-        e.preventDefault();
-        const amount = parseFloat(document.getElementById("withdraw-amount").value);
-        const reason = document.getElementById("withdraw-reason").value;
-        const notes = document.getElementById("withdraw-notes").value;
-
-        if (isNaN(amount) || amount <= 0) {
-            alert("Ilagay ang tamang halaga!");
-            return;
-        }
-
-        await apiFetch("cash_withdrawals", "POST", {
-            amount,
-            reason,
-            notes,
-            date: new Date().toISOString(),
-            user: currentUser ? currentUser.username : "Admin"
-        });
-
-        closeModals();
-        renderDashboard();
-        alert("Matagumpay na na-rekord ang pagkuha ng pera!");
     }
 
     async function updateStartingCashPrompt() {
@@ -817,10 +780,31 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
+    function openCashDrawerModal() {
+        document.getElementById("cashdrawer-form").reset();
+        document.getElementById("cashdrawer-modal").classList.add("active");
+    }
+
+    async function saveCashDrawer(e) {
+        e.preventDefault();
+        const amount = parseFloat(document.getElementById("drawer-amount").value);
+        const reason = document.getElementById("drawer-reason").value;
+        await apiFetch("cashdrawers", "POST", {
+            type: "Withdrawal",
+            amount: amount,
+            reason: reason,
+            date: new Date().toISOString(),
+            user: currentUser ? currentUser.username : "Admin"
+        });
+        closeModals();
+        renderDashboard();
+        alert("Matagumpay na kinuha sa kaha!");
+    }
+
     async function resetAllSalesData() {
-        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales, Utang, at Cash Out pabalik sa zero?")) {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales at Utang pabalik sa zero?")) {
             await fetch("/api/resetsales", { method: "DELETE" });
-            alert("Na-reset na ang sales data!");
+            alert("Na-reset na ang sales!");
             refreshAllViews();
         }
     }
@@ -1019,6 +1003,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
+        
+        let totalProfit = cart.reduce((sum, item) => sum + ((item.sellingPrice - item.costPrice) * item.quantity), 0);
+
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -1038,7 +1025,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, totalprofit: totalProfit, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString()
         };
@@ -1075,7 +1062,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 });
             }
         }
-        alert("Transaction complete! Sukli: " + formatCurrency(change));
+        alert("Transaction complete! Tubo (Profit): " + formatCurrency(totalProfit) + " | Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
         refreshAllViews();
@@ -1165,7 +1152,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
+            const profit = s.totalprofit || 0;
+            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td style="color:var(--success); font-weight:bold;">' + formatCurrency(profit) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
         });
     }
 
@@ -1520,6 +1508,9 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
+        
+        let totalProfit = cart.reduce((sum, item) => sum + ((item.sellingPrice - item.costPrice) * item.quantity), 0);
+
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -1539,7 +1530,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, totalprofit: totalProfit, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: "Cashier Mobile", date: new Date().toISOString()
         };
@@ -1576,7 +1567,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
                 });
             }
         }
-        alert("Transaction complete! Sukli: " + formatCurrency(change));
+        alert("Transaction complete! Tubo: " + formatCurrency(totalProfit) + " | Sukli: " + formatCurrency(change));
         cart = [];
         renderCart();
         document.getElementById("manual-barcode-input").focus();
