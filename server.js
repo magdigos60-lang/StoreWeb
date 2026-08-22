@@ -36,6 +36,7 @@ async function initTables() {
                 subtotal NUMERIC,
                 tax NUMERIC,
                 total NUMERIC,
+                profit NUMERIC,
                 amountpaid NUMERIC,
                 change NUMERIC,
                 paymentmethod TEXT,
@@ -157,6 +158,7 @@ app.delete("/api/resetsales", async (req, res) => {
     try {
         await pool.query("DELETE FROM sales;");
         await pool.query("DELETE FROM utang;");
+        await pool.query("DELETE FROM expenses;");
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -249,7 +251,7 @@ th { background-color: #f9fafb; font-weight: 600; }
 .badge-danger { background: #fee2e2; color: #991b1b; }
 .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: flex; justify-content: center; align-items: center; z-index: 1000; display: none; }
 .modal.active { display: flex; }
-.modal-content { background: white; padding: 2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
+.modal-content { background: white; padding: 2.2rem; border-radius: 8px; width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; }
 @media print {
     body * { visibility: hidden; }
     #printable-barcodes, #printable-barcodes * { visibility: visible; }
@@ -296,7 +298,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <li data-target="sales-view"><a href="#">Sales</a></li>
                 <li data-target="utang-view"><a href="#">Utang / Credit</a></li>
                 <li data-target="customers-view"><a href="#">Customers</a></li>
-                <li data-target="expenses-view"><a href="#">Expenses</a></li>
+                <li data-target="expenses-view"><a href="#">Expenses / Kuha Pera</a></li>
                 <li data-target="settings-view"><a href="#">Settings</a></li>
                 <li><a href="#" id="logout-btn">Logout</a></li>
             </ul>
@@ -319,10 +321,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div class="dashboard-grid">
                         <div class="metric-card"><h3>Starting Cash (Puhunan)</h3><div class="value" id="dash-starting-cash">₱0.00</div></div>
                         <div class="metric-card success"><h3>Total Cash Sales Today</h3><div class="value" id="dash-total-sales">₱0.00</div></div>
+                        <div class="metric-card success" style="border-left-color: #06b6d4;"><h3>Total Profit Today (Tubo)</h3><div class="value" id="dash-total-profit">₱0.00</div></div>
                         <div class="metric-card warning"><h3>Expected Cash sa Kaha</h3><div class="value" id="dash-expected-cash">₱0.00</div></div>
-                        <div class="metric-card success"><h3>Gross Profit Today (Tubo)</h3><div class="value" id="dash-gross-profit">₱0.00</div></div>
-                        <div class="metric-card danger"><h3>Expenses / Cash Withdrawals</h3><div class="value" id="dash-total-expenses">₱0.00</div></div>
-                        <div class="metric-card success" style="border-left-color: #059669;"><h3>Net Profit (Malinis na Tubo)</h3><div class="value" id="dash-net-profit">₱0.00</div></div>
+                        <div class="metric-card danger"><h3>Total Kuha Pera / Grocery</h3><div class="value" id="dash-total-expenses">₱0.00</div></div>
                         <div class="metric-card"><h3>Total Orders Today</h3><div class="value" id="dash-total-orders">0</div></div>
                         <div class="metric-card"><h3>Total Products</h3><div class="value" id="dash-total-products">0</div></div>
                         <div class="metric-card danger"><h3>Outstanding Utang</h3><div class="value" id="dash-outstanding-utang">₱0.00</div></div>
@@ -330,9 +331,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                     <div style="display: flex; gap: 10px; margin-bottom: 2rem; flex-wrap: wrap;">
                         <button class="btn" style="width: auto;" onclick="switchView('pos-view')">Open POS</button>
                         <button class="btn btn-success" style="width: auto;" onclick="openAddProductModal()">Add Product</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="openWithdrawCashModal()">Kuhang Pera (Grocery/Expenses)</button>
-                        <button class="btn btn-warning" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
-                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset Sales</button>
+                        <button class="btn btn-warning" style="width: auto;" onclick="openAddExpenseModal()">Kuha Pera / Grocery</button>
+                        <button class="btn btn-secondary" style="width: auto;" onclick="updateStartingCashPrompt()">Palitan ang Puhunan</button>
+                        <button class="btn btn-danger" style="width: auto;" onclick="resetAllSalesData()">Reset All Sales & Dashboard</button>
                     </div>
                 </section>
 
@@ -461,7 +462,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                             <button class="btn btn-danger" style="width:auto;" onclick="resetAllSalesData()">Reset All Sales</button>
                         </div>
                         <table>
-                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
+                            <thead><tr><th>Trans #</th><th>Date/Time</th><th>Items</th><th>Total</th><th>Profit</th><th>Paid</th><th>Method</th><th>Status</th><th>Action</th></tr></thead>
                             <tbody id="sales-table-tbody"></tbody>
                         </table>
                     </div>
@@ -493,11 +494,11 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 <section id="expenses-view" class="view-section">
                     <div class="card">
                         <div class="card-header">
-                            <h3>Expenses & Cash Withdrawals</h3>
-                            <button class="btn btn-success" style="width:auto;" onclick="openAddExpenseModal()">Add Expense</button>
+                            <h3>Expenses & Kuha Pera (Grocery Funds)</h3>
+                            <button class="btn btn-success" style="width:auto;" onclick="openAddExpenseModal()">Magkuha ng Pera / Add Expense</button>
                         </div>
                         <table>
-                            <thead><tr><th>Name / Purpose</th><th>Category</th><th>Amount</th><th>Date</th><th>Notes</th></tr></thead>
+                            <thead><tr><th>Pangalan / Desc</th><th>Kategorya</th><th>Halaga</th><th>Petsa</th><th>Notes</th><th>Action</th></tr></thead>
                             <tbody id="expenses-table-tbody"></tbody>
                         </table>
                     </div>
@@ -520,7 +521,6 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         </div>
     </div>
 
-    <!-- Modals -->
     <div id="product-modal" class="modal">
         <div class="modal-content">
             <h3 id="product-modal-title">Add Product</h3>
@@ -534,8 +534,8 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                 </div>
                 <div class="form-group"><label>Name</label><input type="text" id="prod-name" class="form-control" required></div>
                 <div class="form-group"><label>Category</label><input type="text" id="prod-category" class="form-control"></div>
-                <div class="form-group"><label>Cost Price</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
-                <div class="form-group"><label>Selling Price</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
+                <div class="form-group"><label>Cost Price (Presyo ng Bili mo)</label><input type="number" step="0.01" id="prod-cost" class="form-control" required></div>
+                <div class="form-group"><label>Selling Price (Presyo ng Bentahan)</label><input type="number" step="0.01" id="prod-price" class="form-control" required></div>
                 <div class="form-group"><label>Stock</label><input type="number" id="prod-stock" class="form-control" value="0" required></div>
                 <button type="submit" class="btn btn-success">Save Product</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
@@ -568,12 +568,13 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
 
     <div id="expense-modal" class="modal">
         <div class="modal-content">
-            <h3>Add Expense / Withdrawal</h3>
+            <h3>Kuha Pera / Grocery Funds</h3>
             <form id="expense-form" onsubmit="saveExpense(event)">
-                <div class="form-group"><label>Pangalan / Dahilan (Hal. Panggrocery, Kuryente)</label><input type="text" id="exp-name" class="form-control" required></div>
-                <div class="form-group"><label>Category</label>
+                <div class="form-group"><label>Para saan ang kinuha? (Hal. Grocery, Personal, Kuryente)</label><input type="text" id="exp-name" class="form-control" placeholder="Grocery pamili..." required></div>
+                <div class="form-group"><label>Kategorya</label>
                     <select id="exp-cat" class="form-control">
-                        <option value="Grocery / Personal">Grocery / Personal</option>
+                        <option value="Grocery">Grocery / Pang-araw-araw</option>
+                        <option value="Personal Withdrawal">Personal Withdrawal / Kuha Pera</option>
                         <option value="Rent">Rent</option>
                         <option value="Electricity">Electricity</option>
                         <option value="Water">Water</option>
@@ -581,22 +582,9 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
                         <option value="Other">Other</option>
                     </select>
                 </div>
-                <div class="form-group"><label>Halaga (Amount)</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
-                <div class="form-group"><label>Notes</label><input type="text" id="exp-notes" class="form-control"></div>
-                <button type="submit" class="btn btn-success">Save Expense / Withdrawal</button>
-                <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
-            </form>
-        </div>
-    </div>
-
-    <!-- Withdraw Cash Quick Modal -->
-    <div id="withdraw-cash-modal" class="modal">
-        <div class="modal-content">
-            <h3>Kuhang Pera sa Kaha (Grocery / Withdraw)</h3>
-            <form id="withdraw-cash-form" onsubmit="saveCashWithdrawal(event)">
-                <div class="form-group"><label>Magkano ang kukunin?</label><input type="number" step="0.01" id="withdraw-amount" class="form-control" required></div>
-                <div class="form-group"><label>Para saan? (Hal. Panggrocery sa palengke)</label><input type="text" id="withdraw-notes" class="form-control" value="Panggrocery" required></div>
-                <button type="submit" class="btn btn-warning" style="color:white;">Kuhain ang Pera</button>
+                <div class="form-group"><label>Magkanong Pera ang kinuha?</label><input type="number" step="0.01" id="exp-amount" class="form-control" required></div>
+                <div class="form-group"><label>Notes (Opsyonal)</label><input type="text" id="exp-notes" class="form-control"></div>
+                <button type="submit" class="btn btn-success">I-save ang Kuha Pera</button>
                 <button type="button" class="btn btn-secondary" onclick="closeModals()" style="margin-top:10px;">Cancel</button>
             </form>
         </div>
@@ -740,28 +728,16 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const utang = await apiFetch("utang");
         const expenses = await apiFetch("expenses");
         const today = new Date().toISOString().slice(0, 10);
-        
-        let totalSalesToday = 0, totalOrdersToday = 0, grossProfitToday = 0;
+        let totalSalesToday = 0, totalOrdersToday = 0, totalProfitToday = 0, totalExpensesToday = 0;
 
         sales.forEach(s => {
             if (s.date && s.date.startsWith(today)) {
                 totalSalesToday += Number(s.total);
+                totalProfitToday += Number(s.profit || 0);
                 totalOrdersToday++;
-                
-                // Calculate accurate profit from items sold
-                const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
-                if (itemsParsed) {
-                    itemsParsed.forEach(item => {
-                        const selling = Number(item.sellingPrice || 0);
-                        const cost = Number(item.costPrice || 0);
-                        const qty = Number(item.quantity || 0);
-                        grossProfitToday += (selling - cost) * qty;
-                    });
-                }
             }
         });
 
-        let totalExpensesToday = 0;
         expenses.forEach(e => {
             if (e.date && e.date.startsWith(today)) {
                 totalExpensesToday += Number(e.amount);
@@ -769,17 +745,15 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         });
 
         let startingCash = Number(appSettings.startingcash || 0);
-        // Expected cash in drawer = Starting Cash + Total Cash Sales - Cash Withdrawn/Expenses
-        let expectedCash = startingCash + totalSalesToday - totalExpensesToday;
+        // Expected Cash = Starting Cash + Total Cash Sales - Total Kuha Pera/Expenses
+        let expectedCash = (startingCash + totalSalesToday) - totalExpensesToday;
         let outstandingUtang = utang.filter(u => u.status !== "Paid").reduce((sum, u) => sum + Number(u.remainingbalance), 0);
-        let netProfitToday = grossProfitToday - totalExpensesToday;
 
         document.getElementById("dash-starting-cash").innerText = formatCurrency(startingCash);
         document.getElementById("dash-total-sales").innerText = formatCurrency(totalSalesToday);
+        document.getElementById("dash-total-profit").innerText = formatCurrency(totalProfitToday);
         document.getElementById("dash-expected-cash").innerText = formatCurrency(expectedCash);
-        document.getElementById("dash-gross-profit").innerText = formatCurrency(grossProfitToday);
         document.getElementById("dash-total-expenses").innerText = formatCurrency(totalExpensesToday);
-        document.getElementById("dash-net-profit").innerText = formatCurrency(netProfitToday);
         document.getElementById("dash-total-orders").innerText = totalOrdersToday;
         document.getElementById("dash-total-products").innerText = products.length;
         document.getElementById("dash-outstanding-utang").innerText = formatCurrency(outstandingUtang);
@@ -795,33 +769,10 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         }
     }
 
-    function openWithdrawCashModal() {
-        document.getElementById("withdraw-cash-form").reset();
-        document.getElementById("withdraw-cash-modal").classList.add("active");
-    }
-
-    async function saveCashWithdrawal(e) {
-        e.preventDefault();
-        const amount = parseFloat(document.getElementById("withdraw-amount").value);
-        const notes = document.getElementById("withdraw-notes").value;
-        if (isNaN(amount) || amount <= 0) { alert("Invalid amount!"); return; }
-
-        await apiFetch("expenses", "POST", {
-            name: notes,
-            category: "Grocery / Personal",
-            amount: amount,
-            notes: "Cash withdrawal from drawer",
-            date: new Date().toISOString()
-        });
-        closeModals();
-        refreshAllViews();
-        alert("Matagumpay na nakuha ang pera sa kaha!");
-    }
-
     async function resetAllSalesData() {
-        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales at Utang pabalik sa zero?")) {
+        if (confirm("Sigurado ka bang gusto mong i-reset ang lahat ng Sales, Utang, at Kuha Pera sa Dashboard pabalik sa zero?")) {
             await fetch("/api/resetsales", { method: "DELETE" });
-            alert("Na-reset na ang sales!");
+            alert("Na-reset na ang dashboard at sales data!");
             refreshAllViews();
         }
     }
@@ -1020,6 +971,14 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
+
+        // Accurate Profit calculation for all items in the cart
+        let totalProfit = 0;
+        cart.forEach(item => {
+            let itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
+            totalProfit += itemProfit;
+        });
+
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -1039,7 +998,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, profit: totalProfit, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: currentUser ? currentUser.username : "Admin", date: new Date().toISOString()
         };
@@ -1166,7 +1125,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         sales.forEach(s => {
             const itemsParsed = typeof s.items === 'string' ? JSON.parse(s.items) : s.items;
             const totalQty = itemsParsed ? itemsParsed.reduce((sum, i) => sum + i.quantity, 0) : 0;
-            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
+            tbody.innerHTML += '<tr><td>' + s.transactionnumber + '</td><td>' + new Date(s.date).toLocaleString() + '</td><td>' + totalQty + '</td><td>' + formatCurrency(s.total) + '</td><td style="color:var(--success); font-weight:bold;">' + formatCurrency(s.profit || 0) + '</td><td>' + formatCurrency(s.amountpaid) + '</td><td>' + s.paymentmethod + '</td><td><span class="badge ' + (s.status === 'Paid' ? 'badge-success' : 'badge-warning') + '">' + s.status + '</span></td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="voidTransaction(' + s.id + ')">Void</button></td></tr>';
         });
     }
 
@@ -1259,6 +1218,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         });
         closeModals();
         refreshAllViews();
+        alert("Na-record na ang pagkuha ng pera!");
     }
     async function renderExpensesTable() {
         const expenses = await apiFetch("expenses");
@@ -1266,8 +1226,14 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
         if (!tbody) return;
         tbody.innerHTML = "";
         expenses.forEach(e => {
-            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td>' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td></tr>';
+            tbody.innerHTML += '<tr><td>' + e.name + '</td><td>' + e.category + '</td><td style="color:var(--danger); font-weight:bold;">' + formatCurrency(e.amount) + '</td><td>' + new Date(e.date).toLocaleDateString() + '</td><td>' + (e.notes || '-') + '</td><td><button class="btn btn-danger" style="padding:0.25rem 0.5rem; width:auto;" onclick="deleteExpense(' + e.id + ')">Delete</button></td></tr>';
         });
+    }
+    async function deleteExpense(id) {
+        if (confirm("Burahin ang record na ito?")) {
+            await apiFetch("expenses/" + id, "DELETE");
+            refreshAllViews();
+        }
     }
 
     async function saveSettings(e) {
@@ -1294,7 +1260,7 @@ const ADMIN_TEMPLATE = `<!DOCTYPE html>
     }
 
     function closeModals() { document.querySelectorAll(".modal").forEach(m => m.classList.remove("active")); }
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
     </script>
 </body>
 </html>
@@ -1521,6 +1487,13 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const subtotal = cart.reduce((sum, item) => sum + (item.sellingPrice * item.quantity), 0);
         const tax = subtotal * (Number(appSettings.taxrate || 0) / 100);
         const grandTotal = subtotal + tax;
+
+        let totalProfit = 0;
+        cart.forEach(item => {
+            let itemProfit = (item.sellingPrice - item.costPrice) * item.quantity;
+            totalProfit += itemProfit;
+        });
+
         const paymentMethod = document.getElementById("pos-payment-method").value;
         let amountPaid = 0, change = 0;
 
@@ -1540,7 +1513,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         const transactionNumber = "TXN-" + Date.now();
         const saleRecord = {
             transactionnumber: transactionNumber, items: JSON.stringify(cart),
-            subtotal, tax, total: grandTotal, amountpaid: amountPaid, change,
+            subtotal, tax, total: grandTotal, profit: totalProfit, amountpaid: amountPaid, change,
             paymentmethod: paymentMethod, status: paymentMethod === "Utang" ? "Credit / Utang" : "Paid",
             cashier: "Cashier Mobile", date: new Date().toISOString()
         };
@@ -1605,7 +1578,7 @@ const CASHIER_TEMPLATE = `<!DOCTYPE html>
         if (utangCustSelect) { utangCustSelect.innerHTML = ""; customers.forEach(c => utangCustSelect.innerHTML += '<option value="' + c.id + '">' + c.name + '</option>'); }
     }
 
-    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\d(?=(\d{3})+\.)/g, '$&,'); }
+    function formatCurrency(amount) { return "₱" + parseFloat(amount || 0).toFixed(2).replace(/\\d(?=(\\d{3})+\\.)/g, '$&,'); }
     </script>
 </body>
 </html>
